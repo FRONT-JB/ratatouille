@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# 실험 산출물 — 용량이 큰 것만 제외, RESULTS.md와 스크립트는 추적
+.experiments/models/
+.experiments/*.wav
+.experiments/persisted/
+.experiments/_*.wav
+
+# 원본 오디오 (대용량)
+*.mp3
+
+# 환경
+.env
+.env.local
