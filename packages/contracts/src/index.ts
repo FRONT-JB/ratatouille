@@ -8,3 +8,4 @@
 export * from './state.ts'
 export * from './rules.ts'
 export * from './evidence.ts'
+export * from './manifest.ts'

@@ -15,7 +15,8 @@
   "dependencies": {
     "@hono/node-server": "^1.19.5",
     "@ratatouille/contracts": "workspace:*",
-    "hono": "^4.9.10"
+    "hono": "^4.9.10",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
