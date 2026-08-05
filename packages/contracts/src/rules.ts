@@ -90,13 +90,27 @@ export function openNewRevision(input: {
 }
 
 /**
+ * 한 번 정해지면 바꿀 수 없는 필드.
+ *
+ * ⛔ 이 목록을 `string`으로 넓히지 않는다. 넓히는 순간 오타가 통과하고,
+ *    "무엇이 불변인가"가 코드에서 사라진다.
+ */
+export type ImmutableField =
+  | 'rawAudio'
+  | 'sourceHash'
+  | 'rawTranscript'
+  // 조각 개수는 녹음 종료 시 클라이언트가 한 번 선언한다. 검증 기준을
+  // 사후에 고칠 수 있으면 검증이 아니다.
+  | `expectedChunks.${string}`
+
+/**
  * 규칙 4 — 불변 데이터는 덮어쓰지 않는다.
  *
- * raw audio, source hash, raw transcript가 대상이다.
+ * raw audio, source hash, raw transcript, 그리고 선언된 조각 개수가 대상이다.
  * 값이 이미 있으면 다른 값으로 바꾸려는 시도를 막는다.
  */
 export function assertImmutable<T>(
-  field: 'rawAudio' | 'sourceHash' | 'rawTranscript',
+  field: ImmutableField,
   existing: T | null | undefined,
   incoming: T
 ): void {

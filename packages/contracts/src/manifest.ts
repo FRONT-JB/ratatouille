@@ -54,6 +54,7 @@ export type ManifestViolation =
   | { kind: 'no_chunks'; track: TrackKind }
   | { kind: 'sequence_gap'; track: TrackKind; missing: number[] }
   | { kind: 'count_mismatch'; track: TrackKind; expected: number; actual: number }
+  | { kind: 'count_undeclared'; track: TrackKind }
   | { kind: 'duplicate_seq'; track: TrackKind; seq: number; conflicting: true }
   | { kind: 'bad_hash_format'; track: TrackKind; seq: number; hash: string }
   | { kind: 'empty_chunk'; track: TrackKind; seq: number }
@@ -142,9 +143,17 @@ export function verifyManifest(
       violations.push({ kind: 'sequence_gap', track, missing })
     }
 
-    // 클라이언트가 선언한 개수와 대조
+    // 클라이언트가 선언한 개수와 대조.
+    //
+    // ⛔ 선언이 **없으면** 개수 검증을 건너뛰는 게 아니라 위반이다.
+    //    조각 수는 녹음이 끝나야 알 수 있어 시작 시점 manifest에는 비어 있고,
+    //    클라이언트가 종료할 때 선언한다. 선언이 없다는 것은 종료 절차를
+    //    거치지 않았다는 뜻이다. 그냥 넘기면 360조각 중 5개만 올라온
+    //    잘린 녹음도 순번만 이어져 있으면 ready가 된다.
     const expected = manifest.expectedChunks[track]
-    if (expected !== undefined && expected !== own.length) {
+    if (expected === undefined) {
+      violations.push({ kind: 'count_undeclared', track })
+    } else if (expected !== own.length) {
       violations.push({
         kind: 'count_mismatch',
         track,
@@ -219,6 +228,8 @@ export function describeManifestViolation(v: ManifestViolation): string {
       return `${v.track}: 조각이 하나도 도착하지 않았다`
     case 'sequence_gap':
       return `${v.track}: 순번 ${v.missing.join(', ')}이 빠졌다`
+    case 'count_undeclared':
+      return `${v.track}: 조각 개수가 선언되지 않았습니다. 녹음 종료 절차가 끝나지 않았을 수 있습니다.`
     case 'count_mismatch':
       return `${v.track}: 선언 ${v.expected}개, 실제 ${v.actual}개`
     case 'duplicate_seq':

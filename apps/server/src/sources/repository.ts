@@ -226,8 +226,28 @@ export class SourceRepository {
    * technical-foundation.md 4절: "종료 후 모든 조각과 manifest가 확인될 때만
    * `ready`가 된다. 불완전한 source는 Inbox에 남고 문서화 job을 만들지 않는다."
    */
-  async finalize(sourceId: string): Promise<SourceRecord> {
+  async finalize(
+    sourceId: string,
+    declared?: { expectedChunks?: Partial<Record<TrackKind, number>> }
+  ): Promise<SourceRecord> {
     const src = this.get(sourceId)
+
+    // 조각 개수는 녹음이 끝나야 알 수 있다. 시작 시점 manifest에는 비어 있고
+    // 클라이언트가 종료할 때 선언한다. 한 번 선언되면 바꾸지 않는다 —
+    // 검증 기준을 사후에 고칠 수 있으면 검증이 아니다.
+    if (src.manifest && declared?.expectedChunks) {
+      for (const [track, count] of Object.entries(declared.expectedChunks)) {
+        const t = track as TrackKind
+        if (typeof count !== 'number') continue
+        assertImmutable(
+          `expectedChunks.${t}`,
+          src.manifest.expectedChunks[t] ?? null,
+          count
+        )
+        src.manifest.expectedChunks[t] = count
+      }
+    }
+
     if (!src.manifest) {
       src.violations = [{ kind: 'no_chunks', track: 'mic' }]
       await this.persist(src)

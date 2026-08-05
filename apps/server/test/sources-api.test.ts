@@ -231,3 +231,68 @@ describe('전체 흐름 — 재접속 복구 포함', () => {
     expect(body.chunkCount).toBe(3)
   })
 })
+
+describe('⛔ 조각 개수는 종료 시점에 선언한다', () => {
+  // 클라이언트는 시작 시점에 몇 조각이 나올지 모른다 (녹음 길이를 모르니까).
+  // 그래서 manifest의 expectedChunks는 비어 있고, 종료할 때 선언한다.
+
+  const openEnded = () => start(manifest({ expectedChunks: {} }))
+
+  it('선언하지 않으면 ready가 되지 않는다', async () => {
+    await openEnded()
+    for (const i of [0, 1, 2]) await putChunk(i, i + 1)
+    const body = await json(
+      await app.request('/api/sources/src_01/finalize', { method: 'POST' })
+    )
+    expect(body.sourceState).toBe('finalizing')
+    expect(body.violations.map((v: { kind: string }) => v.kind)).toContain(
+      'count_undeclared'
+    )
+  })
+
+  it('종료 시점에 선언하면 ready가 된다', async () => {
+    await openEnded()
+    for (const i of [0, 1, 2]) await putChunk(i, i + 1)
+    const body = await json(
+      await app.request('/api/sources/src_01/finalize', {
+        method: 'POST',
+        body: JSON.stringify({ expectedChunks: { mic: 3 } }),
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+    expect(body.sourceState).toBe('ready')
+  })
+
+  it('선언한 수와 실제가 다르면 잡아낸다', async () => {
+    await openEnded()
+    for (const i of [0, 1, 2]) await putChunk(i, i + 1)
+    const body = await json(
+      await app.request('/api/sources/src_01/finalize', {
+        method: 'POST',
+        body: JSON.stringify({ expectedChunks: { mic: 360 } }),
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+    expect(body.sourceState).toBe('finalizing')
+    expect(body.violations.map((v: { kind: string }) => v.kind)).toContain(
+      'count_mismatch'
+    )
+  })
+
+  it('⛔ 한 번 선언한 개수는 바꿀 수 없다 — 검증 기준을 사후에 고치지 못한다', async () => {
+    await openEnded()
+    for (const i of [0, 1, 2]) await putChunk(i, i + 1)
+    const fin = (n: number) =>
+      app.request('/api/sources/src_01/finalize', {
+        method: 'POST',
+        body: JSON.stringify({ expectedChunks: { mic: n } }),
+        headers: { 'content-type': 'application/json' },
+      })
+
+    await fin(360)
+    // 통과하도록 3으로 낮춰보려는 시도
+    const res = await fin(3)
+    expect(res.status).toBe(409)
+    expect((await json(res)).rule).toBe('immutable-field')
+  })
+})

@@ -271,3 +271,44 @@ describe('describeManifestViolation', () => {
     }
   })
 })
+
+describe('⛔ 조각 개수 선언이 없으면 ready가 아니다', () => {
+  // 조각 수는 녹음이 끝나야 알 수 있어 시작 시점 manifest에는 비어 있다.
+  // 종료 절차에서 클라이언트가 선언한다. 선언이 없다는 것은 종료를 거치지
+  // 않았다는 뜻이므로, 개수 검증을 건너뛰면 안 된다.
+
+  const undeclared = () =>
+    manifest({ tracks: ['mic'], expectedChunks: {} })
+
+  it('선언이 없으면 위반이다', () => {
+    const v = verifyManifest(undeclared(), chunks('mic', 2))
+    expect(v.map((x) => x.kind)).toContain('count_undeclared')
+  })
+
+  it('⛔ 잘린 녹음이 순번만 이어져 있다고 통과하지 않는다', () => {
+    // 360조각짜리 회의에서 5개만 올라온 경우. 0..4는 구멍이 없다.
+    expect(canMarkReady(verifyManifest(undeclared(), chunks('mic', 5)))).toBe(false)
+  })
+
+  it('선언하면 통과한다', () => {
+    const m = manifest({ tracks: ['mic'], expectedChunks: { mic: 2 } })
+    expect(canMarkReady(verifyManifest(m, chunks('mic', 2)))).toBe(true)
+  })
+
+  it('track마다 따로 본다', () => {
+    const m = manifest({
+      captureMode: 'online',
+      tracks: ['mic', 'remote'],
+      expectedChunks: { mic: 1 },
+    })
+    const v = verifyManifest(m, [...chunks('mic', 1), ...chunks('remote', 1)])
+    const undecl = v.filter((x) => x.kind === 'count_undeclared')
+    expect(undecl).toEqual([{ kind: 'count_undeclared', track: 'remote' }])
+  })
+
+  it('설명이 한국어다', () => {
+    expect(
+      describeManifestViolation({ kind: 'count_undeclared', track: 'mic' })
+    ).toMatch(/[가-힣]/)
+  })
+})

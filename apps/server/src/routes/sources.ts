@@ -6,7 +6,11 @@
  * (PLAN.md 순서 3 완료 조건: "사용자용 문구가 내부 상태와 명시적으로 매핑된다").
  */
 
-import { type ManifestViolation, describeManifestViolation } from '@ratatouille/contracts'
+import {
+  type ManifestViolation,
+  RuleViolationError,
+  describeManifestViolation,
+} from '@ratatouille/contracts'
 import { Hono } from 'hono'
 import {
   ChunkConflictError,
@@ -121,7 +125,10 @@ export function sourcesRoutes(repo: SourceRepository, publish?: PublishFn): Hono
    */
   app.post('/:id/finalize', async (c) => {
     try {
-      const src = await repo.finalize(c.req.param('id'))
+      // 클라이언트가 종료 시점에 조각 개수를 선언한다. 본문이 없어도 된다
+      // (선언 없음은 verifyManifest가 count_undeclared로 잡는다).
+      const declared = await c.req.json().catch(() => undefined)
+      const src = await repo.finalize(c.req.param('id'), declared)
       if (src.state === 'ready' && publish) {
         // 발행 실패가 수집 결과를 되돌리지 않는다. source는 이미 ready이고
         // 조각도 디스크에 있다. vault 쓰기는 나중에 다시 시도할 수 있다.
@@ -135,6 +142,10 @@ export function sourcesRoutes(repo: SourceRepository, publish?: PublishFn): Hono
       return c.json(toDto(src))
     } catch (e) {
       if (e instanceof SourceNotFoundError) return c.json({ error: e.message }, 404)
+      // 불변 필드를 고치려는 시도는 서버 잘못이 아니라 요청 충돌이다
+      if (e instanceof RuleViolationError) {
+        return c.json({ error: e.message, rule: e.rule }, 409)
+      }
       throw e
     }
   })
