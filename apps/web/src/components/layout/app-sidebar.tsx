@@ -6,22 +6,27 @@ import {
   SidebarHeader,
   SidebarRail,
 } from '@/components/ui/sidebar'
-// import { AppTitle } from './app-title'
+import { ThemeSwitch } from '@/components/theme-switch'
+import { AppTitle } from './app-title'
 import { sidebarData } from './data/sidebar-data'
 import { NavGroup } from './nav-group'
-import { NavUser } from './nav-user'
-import { TeamSwitcher } from './team-switcher'
 
+/**
+ * Ratatouille 공통 앱 셸의 유일한 Sidebar.
+ *
+ * PLAN.md 순서 1 계약:
+ *   - `새 회의`, `회의` + 한 단계 회의 항목, `파일 업로드`를 한 Sidebar 안에 둔다
+ *   - Sidebar 옆에 별도 회의 목록 열을 만들지 않는다
+ *   - Today · 캘린더 · 로드맵 · 통합 작업 관리를 넣지 않는다 (Phase 2)
+ *
+ * 1인용 앱이므로 팀 전환기와 사용자 프로필을 두지 않는다.
+ */
 export function AppSidebar() {
   const { collapsible, variant } = useLayout()
   return (
     <Sidebar collapsible={collapsible} variant={variant}>
       <SidebarHeader>
-        <TeamSwitcher teams={sidebarData.teams} />
-
-        {/* Replace <TeamSwitch /> with the following <AppTitle />
-         /* if you want to use the normal app title instead of TeamSwitch dropdown */}
-        {/* <AppTitle /> */}
+        <AppTitle />
       </SidebarHeader>
       <SidebarContent>
         {sidebarData.navGroups.map((props) => (
@@ -29,7 +34,7 @@ export function AppSidebar() {
         ))}
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={sidebarData.user} />
+        <ThemeSwitch />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
