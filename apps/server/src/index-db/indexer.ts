@@ -180,6 +180,14 @@ export class VaultIndex {
     this.db.transaction(() => this.removeByPath(path))()
   }
 
+  /** 색인된 content hash. 색인한 적 없으면 null. watcher가 변경 판정에 쓴다. */
+  hashOf(path: string): string | null {
+    const row = this.db
+      .prepare('SELECT content_hash FROM documents WHERE path = ?')
+      .get(path) as { content_hash: string } | undefined
+    return row?.content_hash ?? null
+  }
+
   count(): number {
     return (
       this.db.prepare('SELECT COUNT(*) AS n FROM documents').get() as { n: number }

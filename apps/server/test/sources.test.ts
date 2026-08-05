@@ -44,8 +44,8 @@ async function putAll(id: string, track: 'mic' | 'remote', count: number) {
 }
 
 describe('생성과 조회', () => {
-  it('녹음 시작 시 capturing 상태로 만든다', () => {
-    expect(repo.create(manifest()).state).toBe('capturing')
+  it('녹음 시작 시 capturing 상태로 만든다', async () => {
+    expect((await repo.create(manifest())).state).toBe('capturing')
   })
 
   it('없는 source를 조회하면 던진다', () => {
@@ -55,7 +55,7 @@ describe('생성과 조회', () => {
 
 describe('조각 수신은 멱등하다', () => {
   it('새 조각을 받아 저장한다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     const r = await repo.putChunk('src_01', {
       track: 'mic',
       seq: 0,
@@ -65,7 +65,7 @@ describe('조각 수신은 멱등하다', () => {
   })
 
   it('같은 내용을 다시 받으면 duplicate로 표시하고 넘어간다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await repo.putChunk('src_01', { track: 'mic', seq: 0, bytes: bytes(100) })
     const again = await repo.putChunk('src_01', {
       track: 'mic',
@@ -77,7 +77,7 @@ describe('조각 수신은 멱등하다', () => {
   })
 
   it('같은 순번인데 내용이 다르면 던진다 — 데이터 오염', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await repo.putChunk('src_01', { track: 'mic', seq: 0, bytes: bytes(100, 1) })
     await expect(
       repo.putChunk('src_01', { track: 'mic', seq: 0, bytes: bytes(100, 2) })
@@ -85,7 +85,7 @@ describe('조각 수신은 멱등하다', () => {
   })
 
   it('재전송을 반복해도 조각이 늘지 않는다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     for (let i = 0; i < 5; i++) {
       await repo.putChunk('src_01', { track: 'mic', seq: 0, bytes: bytes(100) })
     }
@@ -95,20 +95,20 @@ describe('조각 수신은 멱등하다', () => {
 
 describe('재개 — "어디까지 받았나"', () => {
   it('빠진 순번만 알려준다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await repo.putChunk('src_01', { track: 'mic', seq: 0, bytes: bytes(100) })
     await repo.putChunk('src_01', { track: 'mic', seq: 2, bytes: bytes(100) })
     expect(repo.missing('src_01')).toEqual({ mic: [1] })
   })
 
   it('전부 받았으면 빈 배열 — 중복 업로드를 유발하지 않는다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await putAll('src_01', 'mic', 3)
     expect(repo.missing('src_01')).toEqual({ mic: [] })
   })
 
   it('track별로 따로 계산한다', async () => {
-    repo.create(
+    await repo.create(
       manifest({
         captureMode: 'online',
         tracks: ['mic', 'remote'],
@@ -123,7 +123,7 @@ describe('재개 — "어디까지 받았나"', () => {
 
 describe('finalize — ready는 모든 조각이 확인될 때만', () => {
   it('조각이 온전하면 ready가 된다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await putAll('src_01', 'mic', 3)
     const s = await repo.finalize('src_01')
     expect(s.state).toBe('ready')
@@ -132,7 +132,7 @@ describe('finalize — ready는 모든 조각이 확인될 때만', () => {
   })
 
   it('조각이 빠지면 finalizing에 머물고 Inbox에 남는다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await repo.putChunk('src_01', { track: 'mic', seq: 0, bytes: bytes(100) })
     const s = await repo.finalize('src_01')
     expect(s.state).toBe('finalizing')
@@ -141,21 +141,21 @@ describe('finalize — ready는 모든 조각이 확인될 때만', () => {
   })
 
   it('불완전한 source는 전사 job을 만들 수 없다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await repo.putChunk('src_01', { track: 'mic', seq: 0, bytes: bytes(100) })
     await repo.finalize('src_01')
     expect(repo.canStartTranscription('src_01')).toBe(false)
   })
 
   it('ready가 되어야만 전사 job을 만들 수 있다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await putAll('src_01', 'mic', 3)
     await repo.finalize('src_01')
     expect(repo.canStartTranscription('src_01')).toBe(true)
   })
 
   it('온라인 모드에서 remote track이 없으면 ready가 되지 않는다', async () => {
-    repo.create(manifest({ captureMode: 'online', tracks: ['mic'] }))
+    await repo.create(manifest({ captureMode: 'online', tracks: ['mic'] }))
     await putAll('src_01', 'mic', 3)
     const s = await repo.finalize('src_01')
     expect(s.state).toBe('finalizing')
@@ -165,12 +165,12 @@ describe('finalize — ready는 모든 조각이 확인될 때만', () => {
 
 describe('source hash는 불변이다', () => {
   it('같은 조각이면 같은 hash가 나온다 — 결정론적', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await putAll('src_01', 'mic', 3)
     const h1 = (await repo.finalize('src_01')).sourceHash
 
     const repo2 = new SourceRepository(root)
-    repo2.create(manifest())
+    await repo2.create(manifest())
     for (let i = 0; i < 3; i++) {
       await repo2.putChunk('src_01', { track: 'mic', seq: i, bytes: bytes(100, i + 1) })
     }
@@ -178,12 +178,12 @@ describe('source hash는 불변이다', () => {
   })
 
   it('조각 내용이 다르면 hash도 다르다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await putAll('src_01', 'mic', 3)
     const h1 = (await repo.finalize('src_01')).sourceHash
 
     const repo2 = new SourceRepository(root)
-    repo2.create(manifest({ sourceId: 'src_02' }))
+    await repo2.create(manifest({ sourceId: 'src_02' }))
     for (let i = 0; i < 3; i++) {
       await repo2.putChunk('src_02', {
         track: 'mic',
@@ -195,7 +195,7 @@ describe('source hash는 불변이다', () => {
   })
 
   it('finalize를 두 번 해도 hash가 바뀌지 않는다', async () => {
-    repo.create(manifest())
+    await repo.create(manifest())
     await putAll('src_01', 'mic', 3)
     const h1 = (await repo.finalize('src_01')).sourceHash
     const h2 = (await repo.finalize('src_01')).sourceHash

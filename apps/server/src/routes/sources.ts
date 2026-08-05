@@ -32,7 +32,15 @@ function toDto(s: SourceRecord) {
   }
 }
 
-export function sourcesRoutes(repo: SourceRepository): Hono {
+/**
+ * ready가 된 source를 vault에 발행하는 콜백.
+ *
+ * 선택 사항으로 둔다. 수집 API의 테스트는 vault 없이도 돌아야 하고,
+ * 발행이 실패해도 **이미 받은 조각이 사라지면 안 된다.**
+ */
+export type PublishFn = (src: SourceRecord) => Promise<void>
+
+export function sourcesRoutes(repo: SourceRepository, publish?: PublishFn): Hono {
   const app = new Hono()
 
   /** 녹음 시작 — manifest를 기록한다 (PLAN.md 순서 2) */
@@ -45,7 +53,7 @@ export function sourcesRoutes(repo: SourceRepository): Hono {
       // 재접속 — 중복 생성하지 않고 현재 상태를 돌려준다
       return c.json(toDto(repo.get(manifest.sourceId)), 200)
     }
-    return c.json(toDto(repo.create(manifest)), 201)
+    return c.json(toDto(await repo.create(manifest)), 201)
   })
 
   app.get('/:id', (c) => {
@@ -113,7 +121,18 @@ export function sourcesRoutes(repo: SourceRepository): Hono {
    */
   app.post('/:id/finalize', async (c) => {
     try {
-      return c.json(toDto(await repo.finalize(c.req.param('id'))))
+      const src = await repo.finalize(c.req.param('id'))
+      if (src.state === 'ready' && publish) {
+        // 발행 실패가 수집 결과를 되돌리지 않는다. source는 이미 ready이고
+        // 조각도 디스크에 있다. vault 쓰기는 나중에 다시 시도할 수 있다.
+        try {
+          await publish(src)
+        } catch (e) {
+          console.error(`[sources] ${src.id} vault 발행 실패:`, e)
+          return c.json({ ...toDto(src), publishError: String(e) })
+        }
+      }
+      return c.json(toDto(src))
     } catch (e) {
       if (e instanceof SourceNotFoundError) return c.json({ error: e.message }, 404)
       throw e

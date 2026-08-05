@@ -11,11 +11,23 @@
  */
 
 import { serve } from '@hono/node-server'
-import { app } from './app.ts'
+import { boot } from './runtime.ts'
 
 const port = Number(process.env.PORT ?? 5174)
 const hostname = process.env.HOST ?? '127.0.0.1'
+const dataRoot = process.env.RATATOUILLE_DATA_ROOT ?? './.data'
 
-serve({ fetch: app.fetch, port, hostname }, (info) => {
+const runtime = await boot({ dataRoot })
+
+const server = serve({ fetch: runtime.app.fetch, port, hostname }, (info) => {
   console.log(`Ratatouille server → http://${hostname}:${info.port}`)
+  console.log(`  vault  ${runtime.vault.root}`)
+  console.log(`  인덱스 ${runtime.index.count()}건`)
 })
+
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    // watcher와 SQLite를 정리한다. 안 하면 WAL이 남는다.
+    void runtime.shutdown().then(() => server.close(() => process.exit(0)))
+  })
+}
