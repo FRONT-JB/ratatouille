@@ -1,5 +1,4 @@
 /// <reference types="vitest/config" />
-import path from 'path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -18,7 +17,8 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      // `__dirname`은 native configLoader에서 지원되지 않아 경고가 난다.
+      '@': new URL('./src', import.meta.url).pathname,
     },
   },
   test: {
@@ -34,7 +34,6 @@ export default defineConfig({
       exclude: [
         'src/components/ui/**',
         'src/assets/**',
-        'src/tanstack-table.d.ts',
         'src/routeTree.gen.ts',
         'src/test-utils/**',
         'src/routes/**',

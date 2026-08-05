@@ -16,3 +16,6 @@ dist/
 .env
 .env.local
 dist/
+coverage/
+.playwright-mcp/
+.tanstack/

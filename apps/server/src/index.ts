@@ -1,5 +1,5 @@
 /**
- * Ratatouille 로컬 데몬
+ * Ratatouille 로컬 데몬 진입점.
  *
  * 이 서버가 기기 대수와 무관하게 필요한 이유 (GOAL.md `실행 위상` 참조):
  *   1. whisper-cli 네이티브 실행 — 브라우저가 못 함
@@ -11,11 +11,7 @@
  */
 
 import { serve } from '@hono/node-server'
-import { Hono } from 'hono'
-
-const app = new Hono()
-
-app.get('/api/health', (c) => c.json({ ok: true }))
+import { app } from './app.ts'
 
 const port = Number(process.env.PORT ?? 5174)
 const hostname = process.env.HOST ?? '127.0.0.1'
@@ -23,5 +19,3 @@ const hostname = process.env.HOST ?? '127.0.0.1'
 serve({ fetch: app.fetch, port, hostname }, (info) => {
   console.log(`Ratatouille server → http://${hostname}:${info.port}`)
 })
-
-export { app }
