@@ -1,14 +1,17 @@
 import { Link } from '@tanstack/react-router'
-import { Menu, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar'
-import { Button } from '../ui/button'
 
+/**
+ * Sidebar 헤더의 제품명.
+ *
+ * 토글 버튼을 두지 않는다 — 컨텐츠 영역 Header의 SidebarTrigger가 유일한
+ * 진입점이다. 모바일 Sheet는 overlay 클릭과 ESC로 닫는다.
+ */
 export function AppTitle() {
   const { setOpenMobile } = useSidebar()
   return (
@@ -19,46 +22,16 @@ export function AppTitle() {
           className='gap-0 py-0 hover:bg-transparent active:bg-transparent'
           asChild
         >
-          <div>
-            <Link
-              to='/'
-              onClick={() => setOpenMobile(false)}
-              className='grid flex-1 text-start text-sm'
-            >
-              <span className='truncate font-bold'>Ratatouille</span>
-              <span className='truncate text-xs'>개인 워크스페이스</span>
-            </Link>
-            <ToggleSidebar />
-          </div>
+          <Link
+            to='/'
+            onClick={() => setOpenMobile(false)}
+            className='grid flex-1 text-start text-sm'
+          >
+            <span className='truncate font-bold'>Ratatouille</span>
+            <span className='truncate text-xs'>개인 워크스페이스</span>
+          </Link>
         </SidebarMenuButton>
       </SidebarMenuItem>
     </SidebarMenu>
-  )
-}
-
-function ToggleSidebar({
-  className,
-  onClick,
-  ...props
-}: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar()
-
-  return (
-    <Button
-      data-sidebar='trigger'
-      data-slot='sidebar-trigger'
-      variant='ghost'
-      size='icon'
-      className={cn('aspect-square size-8 max-md:scale-125', className)}
-      onClick={(event) => {
-        onClick?.(event)
-        toggleSidebar()
-      }}
-      {...props}
-    >
-      <X className='md:hidden' />
-      <Menu className='max-md:hidden' />
-      <span className='sr-only'>Toggle Sidebar</span>
-    </Button>
   )
 }
