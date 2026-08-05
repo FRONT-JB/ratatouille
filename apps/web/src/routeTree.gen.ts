@@ -13,6 +13,9 @@ import { Route as AppRouteRouteImport } from './routes/_app/route'
 import { Route as errors404RouteImport } from './routes/(errors)/404'
 import { Route as errors500RouteImport } from './routes/(errors)/500'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppUploadRouteImport } from './routes/_app/upload'
+import { Route as AppMeetingsMeetingIdRouteImport } from './routes/_app/meetings/$meetingId'
+import { Route as AppMeetingsNewRouteImport } from './routes/_app/meetings/new'
 
 const AppRouteRoute = AppRouteRouteImport.update({
   id: '/_app',
@@ -33,30 +36,64 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppUploadRoute = AppUploadRouteImport.update({
+  id: '/upload',
+  path: '/upload',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppMeetingsMeetingIdRoute = AppMeetingsMeetingIdRouteImport.update({
+  id: '/meetings/$meetingId',
+  path: '/meetings/$meetingId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppMeetingsNewRoute = AppMeetingsNewRouteImport.update({
+  id: '/meetings/new',
+  path: '/meetings/new',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/404': typeof errors404Route
   '/500': typeof errors500Route
+  '/upload': typeof AppUploadRoute
+  '/meetings/$meetingId': typeof AppMeetingsMeetingIdRoute
+  '/meetings/new': typeof AppMeetingsNewRoute
 }
 export interface FileRoutesByTo {
   '/404': typeof errors404Route
   '/500': typeof errors500Route
+  '/upload': typeof AppUploadRoute
   '/': typeof AppIndexRoute
+  '/meetings/$meetingId': typeof AppMeetingsMeetingIdRoute
+  '/meetings/new': typeof AppMeetingsNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteRouteWithChildren
   '/(errors)/404': typeof errors404Route
   '/(errors)/500': typeof errors500Route
+  '/_app/upload': typeof AppUploadRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/meetings/$meetingId': typeof AppMeetingsMeetingIdRoute
+  '/_app/meetings/new': typeof AppMeetingsNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/404' | '/500'
+  fullPaths:
+    '/' | '/404' | '/500' | '/upload' | '/meetings/$meetingId' | '/meetings/new'
   fileRoutesByTo: FileRoutesByTo
-  to: '/404' | '/500' | '/'
-  id: '__root__' | '/_app' | '/(errors)/404' | '/(errors)/500' | '/_app/'
+  to:
+    '/404' | '/500' | '/upload' | '/' | '/meetings/$meetingId' | '/meetings/new'
+  id:
+    | '__root__'
+    | '/_app'
+    | '/(errors)/404'
+    | '/(errors)/500'
+    | '/_app/upload'
+    | '/_app/'
+    | '/_app/meetings/$meetingId'
+    | '/_app/meetings/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -95,15 +132,42 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/_app/upload': {
+      id: '/_app/upload'
+      path: '/upload'
+      fullPath: '/upload'
+      preLoaderRoute: typeof AppUploadRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/meetings/$meetingId': {
+      id: '/_app/meetings/$meetingId'
+      path: '/meetings/$meetingId'
+      fullPath: '/meetings/$meetingId'
+      preLoaderRoute: typeof AppMeetingsMeetingIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/meetings/new': {
+      id: '/_app/meetings/new'
+      path: '/meetings/new'
+      fullPath: '/meetings/new'
+      preLoaderRoute: typeof AppMeetingsNewRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
   }
 }
 
 interface AppRouteRouteChildren {
+  AppUploadRoute: typeof AppUploadRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppMeetingsMeetingIdRoute: typeof AppMeetingsMeetingIdRoute
+  AppMeetingsNewRoute: typeof AppMeetingsNewRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
+  AppUploadRoute: AppUploadRoute,
   AppIndexRoute: AppIndexRoute,
+  AppMeetingsMeetingIdRoute: AppMeetingsMeetingIdRoute,
+  AppMeetingsNewRoute: AppMeetingsNewRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
