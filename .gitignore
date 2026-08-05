@@ -15,3 +15,4 @@ dist/
 # 환경
 .env
 .env.local
+dist/
