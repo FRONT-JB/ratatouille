@@ -19,3 +19,4 @@ dist/
 coverage/
 .playwright-mcp/
 .tanstack/
+.data/
