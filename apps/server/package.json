@@ -15,10 +15,12 @@
   "dependencies": {
     "@hono/node-server": "^1.19.5",
     "@ratatouille/contracts": "workspace:*",
+    "better-sqlite3": "^13.0.3",
     "hono": "^4.9.10",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.10.1",
     "typescript": "~5.9.3",
     "vitest": "^3.2.4"
