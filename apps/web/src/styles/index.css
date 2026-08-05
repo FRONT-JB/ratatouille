@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
+@import './fonts.css';
 @import './theme.css';
 
 @custom-variant dark (&:is(.dark *));
@@ -12,9 +13,37 @@
   }
   html {
     @apply overflow-x-hidden;
+
+    /*
+     * 전역 행간 = 폰트 사이즈 × 1.618 (황금비).
+     * 단위 없는 값이라 상속받는 요소마다 자기 font-size에 곱해진다.
+     * Tailwind의 text-* 유틸이 지정하는 line-height는
+     * theme.css의 `--text-*--line-height`에서 함께 1.618로 덮었다.
+     */
+    line-height: 1.618;
   }
   body {
-    @apply min-h-svh w-full bg-background text-foreground has-[div[data-variant='inset']]:bg-sidebar;
+    @apply min-h-svh w-full bg-background font-sans text-foreground has-[div[data-variant='inset']]:bg-sidebar;
+    line-height: 1.618;
+
+    /* Paperlogy는 한글 본문용이라 약간의 자간 조정이 읽기에 낫다 */
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /*
+   * 제목도 예외 없이 1.618을 쓴다. 사용자 요구사항이다.
+   * Tailwind preflight가 heading에 별도 line-height를 주지 않으므로
+   * html에서 상속되지만, 명시해 회귀를 막는다.
+   */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    line-height: 1.618;
   }
 
   /* Override Radix scroll locking for sticky headers */

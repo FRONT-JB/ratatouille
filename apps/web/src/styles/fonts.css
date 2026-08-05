@@ -1,0 +1,57 @@
+/**
+ * Paperlogy — Ratatouille의 유일한 서체.
+ *
+ * 홈서버 개인 앱이므로 CDN 대신 `public/fonts/`에서 자체 호스팅한다.
+ * 인터넷이 끊겨도 서체가 유지되어야 한다.
+ *
+ * `font-display: swap`으로 FOIT(글자 사라짐)를 피한다 — 한국어 회의록은
+ * 텍스트가 본체라 로딩 중 공백이 특히 거슬린다.
+ */
+
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-3Light.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-4Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-5Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-6SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-7Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Paperlogy';
+  src: url('/fonts/Paperlogy-8ExtraBold.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}

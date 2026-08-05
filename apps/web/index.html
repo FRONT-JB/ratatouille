@@ -38,15 +38,35 @@
       content="회의 녹음부터 전사 교정, AI 정리와 확정까지 이어지는 개인 워크스페이스."
     />
 
-    <!-- font family -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      Paperlogy — 자체 호스팅. 홈서버 개인 앱이라 인터넷 없이도 떠야 한다.
+      본문에 바로 쓰이는 Regular/Medium만 preload 하고 나머지는 필요할 때 받는다.
+    -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Manrope:wght@200..800&display=swap"
-      rel="stylesheet"
+      rel="preload"
+      href="/fonts/Paperlogy-4Regular.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/Paperlogy-5Medium.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
     />
 
-    <meta name="theme-color" content="#fff" />
+    <meta
+      name="theme-color"
+      content="#ffffff"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#0a0a0a"
+      media="(prefers-color-scheme: dark)"
+    />
   </head>
 
   <body>

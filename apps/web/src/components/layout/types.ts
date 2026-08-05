@@ -21,6 +21,8 @@ type NavItem = NavCollapsible | NavLink
 type NavGroup = {
   title: string
   items: NavItem[]
+  /** items가 비었을 때 링크 대신 보여줄 안내 문구 */
+  emptyLabel?: string
 }
 
 type SidebarData = {

@@ -33,9 +33,25 @@ import {
   type NavGroup as NavGroupProps,
 } from './types'
 
-export function NavGroup({ title, items }: NavGroupProps) {
+export function NavGroup({ title, items, emptyLabel }: NavGroupProps) {
   const { state, isMobile } = useSidebar()
   const href = useLocation({ select: (location) => location.href })
+
+  // 항목이 없을 때 가짜 링크를 넣으면 현재 경로와 매칭되어 활성 상태로
+  // 보인다. 비어 있음은 링크가 아니라 안내 문구로 표시한다.
+  if (items.length === 0) {
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>{title}</SidebarGroupLabel>
+        {emptyLabel && (
+          <p className='text-muted-foreground px-2 py-1 text-xs group-data-[collapsible=icon]:hidden'>
+            {emptyLabel}
+          </p>
+        )}
+      </SidebarGroup>
+    )
+  }
+
   return (
     <SidebarGroup>
       <SidebarGroupLabel>{title}</SidebarGroupLabel>

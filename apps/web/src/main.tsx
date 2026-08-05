@@ -8,7 +8,6 @@ import {
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import { handleServerError } from '@/lib/handle-server-error'
-import { FontProvider } from './context/font-provider'
 import { ThemeProvider } from './context/theme-provider'
 // Generated Routes
 import { routeTree } from './routeTree.gen'
@@ -81,9 +80,7 @@ if (!rootElement.innerHTML) {
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <FontProvider>
-            <RouterProvider router={router} />
-          </FontProvider>
+          <RouterProvider router={router} />
         </ThemeProvider>
       </QueryClientProvider>
     </StrictMode>

@@ -1,73 +1,187 @@
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.129 0.042 264.695);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.929 0.013 255.508);
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.704 0.04 256.788);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+/**
+ * Ratatouille 테마 — Vercel(Geist) 컬러 스케일 기반.
+ *
+ * 설계 원칙:
+ *   - 채도를 거의 쓰지 않는 무채색 스케일. 색은 상태 표시에만 쓴다.
+ *     회의 화면은 전사 텍스트가 본체라 배경이 조용해야 한다.
+ *   - primary는 파랑이 아니라 **검정/흰색**이다 (Vercel 시그니처).
+ *     파랑은 focus ring과 링크에만 쓴다.
+ *   - 다크 모드 배경은 순수 검정(#000)이 아니라 #0a0a0a — 순검정은
+ *     OLED에서 스크롤 잔상이 생기고 경계가 사라진다.
+ *
+ * 상태 색(--state-*)은 review-contract.md의 검수 상태와 처리 상태에 쓴다.
+ */
 
-  --sidebar: var(--background);
+:root {
+  /* Vercel은 각진 편이다. 기존 10px → 6px */
+  --radius: 0.375rem;
+
+  /* ── Geist gray scale (light) ── */
+  --gray-100: #f2f2f2;
+  --gray-200: #ebebeb;
+  --gray-300: #e6e6e6;
+  --gray-400: #eaeaea;
+  --gray-500: #c9c9c9;
+  --gray-600: #a8a8a8;
+  --gray-700: #8f8f8f;
+  --gray-800: #7d7d7d;
+  --gray-900: #666666;
+  --gray-1000: #171717;
+
+  --background: #ffffff;
+  --foreground: var(--gray-1000);
+
+  --card: #ffffff;
+  --card-foreground: var(--gray-1000);
+  --popover: #ffffff;
+  --popover-foreground: var(--gray-1000);
+
+  /* Vercel 버튼은 검정 배경 + 흰 글씨 */
+  --primary: var(--gray-1000);
+  --primary-foreground: #ffffff;
+
+  --secondary: var(--gray-100);
+  --secondary-foreground: var(--gray-1000);
+
+  --muted: #fafafa;
+  --muted-foreground: var(--gray-700);
+
+  --accent: var(--gray-100);
+  --accent-foreground: var(--gray-1000);
+
+  --destructive: #e5484d;
+  --destructive-foreground: #ffffff;
+
+  --border: var(--gray-200);
+  --input: var(--gray-200);
+  --ring: #0070f3;
+
+  /* ── 상태 색 ── */
+  --state-info: #0070f3; /* waiting_for_model, syncing */
+  --state-success: #45a557; /* ready, accepted, current */
+  --state-warning: #f5a623; /* interrupted, uncertain, stale */
+  --state-danger: #e5484d; /* failed_retryable, auth_required */
+  --state-neutral: var(--gray-700); /* unreviewed, empty */
+
+  --chart-1: #0070f3;
+  --chart-2: #45a557;
+  --chart-3: #f5a623;
+  --chart-4: #e5484d;
+  --chart-5: var(--gray-700);
+
+  /* Sidebar는 본문보다 한 단계 어둡게 — Vercel 대시보드 패턴 */
+  --sidebar: #fafafa;
   --sidebar-foreground: var(--foreground);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
-  --sidebar-accent: var(--accent);
-  --sidebar-accent-foreground: var(--accent-foreground);
-  --sidebar-border: var(--border);
+  --sidebar-accent: var(--gray-200);
+  --sidebar-accent-foreground: var(--gray-1000);
+  --sidebar-border: var(--gray-200);
   --sidebar-ring: var(--ring);
 }
 
 .dark {
-  --background: oklch(0.129 0.042 264.695);
-  --foreground: oklch(0.984 0.003 247.858);
-  --card: oklch(0.14 0.04 259.21);
-  --card-foreground: oklch(0.984 0.003 247.858);
-  --popover: oklch(0.208 0.042 265.755);
-  --popover-foreground: oklch(0.984 0.003 247.858);
-  --primary: oklch(0.929 0.013 255.508);
-  --primary-foreground: oklch(0.208 0.042 265.755);
-  --secondary: oklch(0.279 0.041 260.031);
-  --secondary-foreground: oklch(0.984 0.003 247.858);
-  --muted: oklch(0.279 0.041 260.031);
-  --muted-foreground: oklch(0.704 0.04 256.788);
-  --accent: oklch(0.279 0.041 260.031);
-  --accent-foreground: oklch(0.984 0.003 247.858);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
+  /* ── Geist gray scale (dark) ── */
+  --gray-100: #1a1a1a;
+  --gray-200: #1f1f1f;
+  --gray-300: #292929;
+  --gray-400: #2e2e2e;
+  --gray-500: #454545;
+  --gray-600: #878787;
+  --gray-700: #8f8f8f;
+  --gray-800: #7d7d7d;
+  --gray-900: #a1a1a1;
+  --gray-1000: #ededed;
+
+  /* 순검정(#000)이 아니다 — 경계가 사라지고 OLED 잔상이 생긴다 */
+  --background: #0a0a0a;
+  --foreground: var(--gray-1000);
+
+  --card: #0a0a0a;
+  --card-foreground: var(--gray-1000);
+  --popover: var(--gray-100);
+  --popover-foreground: var(--gray-1000);
+
+  /* 다크에서는 반전 — 흰 배경 + 검은 글씨 */
+  --primary: var(--gray-1000);
+  --primary-foreground: #0a0a0a;
+
+  --secondary: var(--gray-200);
+  --secondary-foreground: var(--gray-1000);
+
+  --muted: var(--gray-100);
+  --muted-foreground: var(--gray-900);
+
+  --accent: var(--gray-200);
+  --accent-foreground: var(--gray-1000);
+
+  --destructive: #ff6166;
+  --destructive-foreground: #0a0a0a;
+
+  --border: var(--gray-400);
+  --input: var(--gray-400);
+  --ring: #0072f5;
+
+  /* 다크에서는 채도를 올려야 같은 대비가 나온다 */
+  --state-info: #52a8ff;
+  --state-success: #62c073;
+  --state-warning: #f7b955;
+  --state-danger: #ff6166;
+  --state-neutral: var(--gray-900);
+
+  --chart-1: #52a8ff;
+  --chart-2: #62c073;
+  --chart-3: #f7b955;
+  --chart-4: #ff6166;
+  --chart-5: var(--gray-900);
+
+  /* 다크에서는 sidebar가 본문보다 더 어둡다 */
+  --sidebar: #000000;
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--gray-200);
+  --sidebar-accent-foreground: var(--gray-1000);
+  --sidebar-border: var(--gray-300);
+  --sidebar-ring: var(--ring);
 }
 
 @theme inline {
-  --font-inter: 'Inter', 'sans-serif';
-  --font-manrope: 'Manrope', 'sans-serif';
+  /* ── 서체 ── Paperlogy로 통일 */
+  --font-sans:
+    'Paperlogy', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Segoe UI', sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, monospace;
 
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  /*
+   * ── 행간 ── 전부 폰트 사이즈 × 1.618 (황금비)
+   *
+   * Tailwind의 text-* 유틸은 각자 line-height를 함께 지정하므로,
+   * 아래처럼 `--text-*--line-height`를 덮어써야 실제로 1.618이 적용된다.
+   * 단위 없는 1.618이라 각 요소의 자기 font-size에 곱해진다.
+   */
+  --text-xs--line-height: 1.618;
+  --text-sm--line-height: 1.618;
+  --text-base--line-height: 1.618;
+  --text-lg--line-height: 1.618;
+  --text-xl--line-height: 1.618;
+  --text-2xl--line-height: 1.618;
+  --text-3xl--line-height: 1.618;
+  --text-4xl--line-height: 1.618;
+  --text-5xl--line-height: 1.618;
+  --text-6xl--line-height: 1.618;
+  --text-7xl--line-height: 1.618;
+  --text-8xl--line-height: 1.618;
+  --text-9xl--line-height: 1.618;
+
+  --leading-golden: 1.618;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: calc(var(--radius) - 1px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -83,14 +197,34 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  --color-gray-100: var(--gray-100);
+  --color-gray-200: var(--gray-200);
+  --color-gray-300: var(--gray-300);
+  --color-gray-400: var(--gray-400);
+  --color-gray-500: var(--gray-500);
+  --color-gray-600: var(--gray-600);
+  --color-gray-700: var(--gray-700);
+  --color-gray-800: var(--gray-800);
+  --color-gray-900: var(--gray-900);
+  --color-gray-1000: var(--gray-1000);
+
+  --color-state-info: var(--state-info);
+  --color-state-success: var(--state-success);
+  --color-state-warning: var(--state-warning);
+  --color-state-danger: var(--state-danger);
+  --color-state-neutral: var(--state-neutral);
+
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);

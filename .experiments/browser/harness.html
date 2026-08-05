@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ratatouille 브라우저 수집 실험</title>
+    <style>
+      body {
+        font-family: ui-monospace, monospace;
+        padding: 1rem;
+        line-height: 1.5;
+      }
+      pre {
+        background: #f4f4f5;
+        padding: 1rem;
+        overflow: auto;
+        max-height: 70vh;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Ratatouille 브라우저 수집 실험 (Phase 0.1~0.4)</h1>
+    <button id="start" style="font-size: 1rem; padding: 0.5rem 1rem">
+      실험 시작
+    </button>
+    <p id="status">대기 중</p>
+    <pre id="out"></pre>
+
+    <script type="module">
+      const statusEl = document.getElementById('status')
+      const outEl = document.getElementById('out')
+      const results = {}
+      window.__results = results
+      window.__done = false
+
+      const log = (msg) => {
+        statusEl.textContent = msg
+        outEl.textContent += msg + '\n'
+      }
+
+      /**
+       * 실제 마이크 없이 결정론적 MediaStream을 만든다.
+       * 오디오 회의와 유사하도록 톤 + 변조를 준다.
+       */
+      function makeStream(ctx, freq) {
+        const osc = ctx.createOscillator()
+        osc.type = 'sawtooth'
+        osc.frequency.value = freq
+        const lfo = ctx.createOscillator()
+        lfo.frequency.value = 0.7
+        const lfoGain = ctx.createGain()
+        lfoGain.gain.value = 0.4
+        const gain = ctx.createGain()
+        gain.gain.value = 0.5
+        lfo.connect(lfoGain).connect(gain.gain)
+        const dest = ctx.createMediaStreamDestination()
+        osc.connect(gain).connect(dest)
+        osc.start()
+        lfo.start()
+        return { stream: dest.stream, stop: () => (osc.stop(), lfo.stop()) }
+      }
+
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+      // ───────────────────────── 0.2 chunk 길이 ─────────────────────────
+      async function measureChunkSize(ctx, timesliceMs, durationMs) {
+        const { stream, stop } = makeStream(ctx, 220)
+        const rec = new MediaRecorder(stream, {
+          mimeType: 'audio/webm;codecs=opus',
+        })
+        const chunks = []
+        const arrivals = []
+        const t0 = performance.now()
+
+        rec.ondataavailable = (e) => {
+          chunks.push(e.data.size)
+          arrivals.push(performance.now() - t0)
+        }
+
+        // stop 이벤트가 안 오는 환경이 있어 상한을 둔다
+        const stopped = new Promise((r) => (rec.onstop = r))
+        rec.start(timesliceMs)
+        await sleep(durationMs)
+        const tStop = performance.now()
+        rec.stop()
+        await Promise.race([stopped, sleep(5000)])
+        const stopLatency = performance.now() - tStop
+        stop()
+
+        if (chunks.length === 0) {
+          return { timesliceMs, durationMs, chunkCount: 0, error: '조각 없음' }
+        }
+
+        const total = chunks.reduce((a, b) => a + b, 0)
+        const gaps = arrivals.slice(1).map((t, i) => t - arrivals[i])
+        return {
+          timesliceMs,
+          durationMs,
+          chunkCount: chunks.length,
+          totalBytes: total,
+          bytesPerSecond: Math.round(total / (durationMs / 1000)),
+          avgChunkBytes: Math.round(total / chunks.length),
+          minChunkBytes: Math.min(...chunks),
+          maxChunkBytes: Math.max(...chunks),
+          // 첫 조각에는 webm 헤더가 들어가 크기가 다르다
+          firstChunkBytes: chunks[0],
+          lastChunkBytes: chunks[chunks.length - 1],
+          avgGapMs: gaps.length
+            ? Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length)
+            : null,
+          maxGapMs: gaps.length ? Math.round(Math.max(...gaps)) : null,
+          // stop() 호출 후 마지막 조각이 도착하기까지
+          stopLatencyMs: Math.round(stopLatency),
+        }
+      }
+
+      // ─────────────────── 0.1 로컬 저장소 처리량 ───────────────────
+      async function measureOPFS(payload, count) {
+        if (!navigator.storage?.getDirectory) return { available: false }
+        const root = await navigator.storage.getDirectory()
+        const dir = await root.getDirectoryHandle('rat-exp', { create: true })
+        const t0 = performance.now()
+        for (let i = 0; i < count; i++) {
+          const fh = await dir.getFileHandle(`chunk-${i}.webm`, {
+            create: true,
+          })
+          const w = await fh.createWritable()
+          await w.write(payload)
+          await w.close()
+        }
+        const writeMs = performance.now() - t0
+
+        const t1 = performance.now()
+        let readBytes = 0
+        for (let i = 0; i < count; i++) {
+          const fh = await dir.getFileHandle(`chunk-${i}.webm`)
+          readBytes += (await fh.getFile()).size
+        }
+        const readMs = performance.now() - t1
+
+        for (let i = 0; i < count; i++) {
+          await dir.removeEntry(`chunk-${i}.webm`)
+        }
+        return {
+          available: true,
+          count,
+          payloadBytes: payload.byteLength,
+          writeMs: Math.round(writeMs),
+          readMs: Math.round(readMs),
+          writeMBps: +(
+            (payload.byteLength * count) /
+            1024 /
+            1024 /
+            (writeMs / 1000)
+          ).toFixed(1),
+          readBytes,
+        }
+      }
+
+      async function measureIDB(payload, count) {
+        const db = await new Promise((res, rej) => {
+          const req = indexedDB.open('rat-exp', 1)
+          req.onupgradeneeded = () => req.result.createObjectStore('chunks')
+          req.onsuccess = () => res(req.result)
+          req.onerror = () => rej(req.error)
+        })
+        const t0 = performance.now()
+        await new Promise((res, rej) => {
+          const tx = db.transaction('chunks', 'readwrite')
+          const store = tx.objectStore('chunks')
+          for (let i = 0; i < count; i++) store.put(payload, i)
+          tx.oncomplete = res
+          tx.onerror = () => rej(tx.error)
+        })
+        const writeMs = performance.now() - t0
+
+        const t1 = performance.now()
+        await new Promise((res, rej) => {
+          const tx = db.transaction('chunks', 'readonly')
+          const store = tx.objectStore('chunks')
+          for (let i = 0; i < count; i++) store.get(i)
+          tx.oncomplete = res
+          tx.onerror = () => rej(tx.error)
+        })
+        const readMs = performance.now() - t1
+
+        await new Promise((res) => {
+          const tx = db.transaction('chunks', 'readwrite')
+          tx.objectStore('chunks').clear()
+          tx.oncomplete = res
+        })
+        db.close()
+        return {
+          available: true,
+          count,
+          payloadBytes: payload.byteLength,
+          writeMs: Math.round(writeMs),
+          readMs: Math.round(readMs),
+          writeMBps: +(
+            (payload.byteLength * count) /
+            1024 /
+            1024 /
+            (writeMs / 1000)
+          ).toFixed(1),
+        }
+      }
+
+      // ───────────────── 0.3 hash 계산 비용 (재전송 검증용) ─────────────────
+      async function measureHash(payload, count) {
+        const t0 = performance.now()
+        for (let i = 0; i < count; i++) {
+          await crypto.subtle.digest('SHA-256', payload)
+        }
+        const ms = performance.now() - t0
+        return {
+          count,
+          payloadBytes: payload.byteLength,
+          totalMs: Math.round(ms),
+          perChunkMs: +(ms / count).toFixed(2),
+          throughputMBps: +(
+            (payload.byteLength * count) /
+            1024 /
+            1024 /
+            (ms / 1000)
+          ).toFixed(1),
+        }
+      }
+
+      // ───────────── 0.4 mic/remote 두 스트림 시간축 정렬 ─────────────
+      async function measureAlignment(ctx, durationMs, timesliceMs) {
+        const a = makeStream(ctx, 220) // mic 역할
+        const b = makeStream(ctx, 330) // remote 역할
+        const recA = new MediaRecorder(a.stream, {
+          mimeType: 'audio/webm;codecs=opus',
+        })
+        const recB = new MediaRecorder(b.stream, {
+          mimeType: 'audio/webm;codecs=opus',
+        })
+        const arrA = []
+        const arrB = []
+        const t0 = performance.now()
+        recA.ondataavailable = () => arrA.push(performance.now() - t0)
+        recB.ondataavailable = () => arrB.push(performance.now() - t0)
+
+        const stoppedA = new Promise((r) => (recA.onstop = r))
+        const stoppedB = new Promise((r) => (recB.onstop = r))
+
+        // 같은 tick에서 동시 시작 — 제품도 이렇게 시작한다
+        const startCallMs = performance.now() - t0
+        recA.start(timesliceMs)
+        recB.start(timesliceMs)
+        const startReturnMs = performance.now() - t0
+
+        // 절반 지점에서 A만 일시정지 → 재개 (드리프트 유발)
+        await sleep(durationMs / 2)
+        recA.pause()
+        await sleep(400)
+        recA.resume()
+        await sleep(durationMs / 2)
+
+        recA.stop()
+        recB.stop()
+        await Promise.race([Promise.all([stoppedA, stoppedB]), sleep(5000)])
+        a.stop()
+        b.stop()
+
+        if (arrA.length === 0 || arrB.length === 0) {
+          return { durationMs, timesliceMs, error: '조각 없음', chunksA: arrA.length, chunksB: arrB.length }
+        }
+        const pairs = Math.min(arrA.length, arrB.length)
+        const deltas = []
+        for (let i = 0; i < pairs; i++) deltas.push(arrA[i] - arrB[i])
+        return {
+          durationMs,
+          timesliceMs,
+          startCallSpreadMs: +(startReturnMs - startCallMs).toFixed(2),
+          chunksA: arrA.length,
+          chunksB: arrB.length,
+          // 일시정지로 A가 조각을 덜 받는다 → 개수 차이 자체가 정렬 신호
+          chunkCountDelta: arrA.length - arrB.length,
+          firstChunkDeltaMs: +(arrA[0] - arrB[0]).toFixed(2),
+          lastChunkDeltaMs: +(
+            arrA[arrA.length - 1] - arrB[arrB.length - 1]
+          ).toFixed(2),
+          maxAbsDeltaMs: +Math.max(...deltas.map(Math.abs)).toFixed(2),
+        }
+      }
+
+      // ───────────────────────────── 실행 ─────────────────────────────
+      async function run() {
+        try {
+          results.env = {
+            userAgent: navigator.userAgent,
+            supportedMime: [
+              'audio/webm;codecs=opus',
+              'audio/webm',
+              'audio/mp4',
+              'audio/ogg;codecs=opus',
+            ].filter((m) => MediaRecorder.isTypeSupported(m)),
+          }
+
+          const est = await navigator.storage?.estimate?.()
+          results.storageQuota = est
+            ? {
+                quotaMB: Math.round(est.quota / 1024 / 1024),
+                usageMB: +(est.usage / 1024 / 1024).toFixed(2),
+              }
+            : null
+          results.persisted = await navigator.storage?.persisted?.()
+          log('환경 수집 완료')
+
+          const ctx = new AudioContext()
+          // headless에서는 user gesture 없이 resume()이 영원히 pending 될 수 있다.
+          await Promise.race([ctx.resume(), sleep(3000)])
+          results.audioContextState = ctx.state
+          log(`AudioContext: ${ctx.state}`)
+
+          // 0.2 — chunk 길이 3종, 각 30초
+          results.chunkSize = []
+          for (const ts of [1000, 5000, 10000]) {
+            log(`0.2 chunk ${ts}ms 측정 중 (30초)...`)
+            results.chunkSize.push(await measureChunkSize(ctx, ts, 30000))
+          }
+
+          // 실측된 5초 조각 크기로 payload를 만든다.
+          // 조각을 못 받았으면 opus 24kbps 기준 추정치(5초 = 15KB)로 대체한다.
+          const c5 = results.chunkSize.find((c) => c.timesliceMs === 5000)
+          const payloadBytes = c5?.avgChunkBytes || 15360
+          results.payloadSource = c5?.avgChunkBytes ? '실측' : '추정(15KB)'
+          const payload = new Uint8Array(payloadBytes)
+          // getRandomValues는 호출당 65536바이트 상한이 있다
+          for (let o = 0; o < payload.length; o += 65536) {
+            crypto.getRandomValues(payload.subarray(o, Math.min(o + 65536, payload.length)))
+          }
+          // 30분 녹음 = 5초 조각 360개
+          const N = 360
+
+          log(`0.1 OPFS 측정 중 (${N}개 × ${payload.byteLength}B)...`)
+          results.opfs = await measureOPFS(payload, N)
+
+          log(`0.1 IndexedDB 측정 중 (${N}개)...`)
+          results.indexedDB = await measureIDB(payload, N)
+
+          log(`0.3 SHA-256 hash 비용 측정 중 (${N}개)...`)
+          results.hash = await measureHash(payload, N)
+
+          log('0.4 mic/remote 시간축 정렬 측정 중 (30초)...')
+          results.alignment = await measureAlignment(ctx, 30000, 5000)
+
+          await ctx.close()
+          log('완료')
+        } catch (e) {
+          results.error = String(e?.stack || e)
+          log('오류: ' + e)
+        } finally {
+          window.__done = true
+          outEl.textContent += '\n' + JSON.stringify(results, null, 2)
+        }
+      }
+
+      // user gesture가 있어야 AudioContext가 확실히 resume 된다
+      document.getElementById('start').addEventListener('click', () => {
+        document.getElementById('start').disabled = true
+        run()
+      })
+    </script>
+  </body>
+</html>

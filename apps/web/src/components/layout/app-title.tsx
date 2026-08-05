@@ -23,7 +23,7 @@ export function AppTitle() {
             <Link
               to='/'
               onClick={() => setOpenMobile(false)}
-              className='grid flex-1 text-start text-sm leading-tight'
+              className='grid flex-1 text-start text-sm'
             >
               <span className='truncate font-bold'>Ratatouille</span>
               <span className='truncate text-xs'>개인 워크스페이스</span>

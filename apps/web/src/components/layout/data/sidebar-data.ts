@@ -1,4 +1,4 @@
-import { Mic, Upload, FileAudio } from 'lucide-react'
+import { Mic, Upload } from 'lucide-react'
 import { type SidebarData } from '../types'
 
 /**
@@ -33,15 +33,10 @@ export const sidebarData: SidebarData = {
     },
     {
       title: '회의',
-      items: [
-        // 회의 항목이 한 단계로 여기에 직접 들어온다 (중첩 tree 금지).
-        // 서버 연동 전까지는 placeholder 하나만 둔다.
-        {
-          title: '아직 회의가 없습니다',
-          url: '/',
-          icon: FileAudio,
-        },
-      ],
+      // 회의 항목이 한 단계로 여기에 직접 들어온다 (중첩 tree 금지).
+      // 서버 연동 전까지는 비어 있다.
+      items: [],
+      emptyLabel: '아직 회의가 없습니다',
     },
   ],
 }
