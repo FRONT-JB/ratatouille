@@ -7,13 +7,13 @@
  *    · 닿지 못하는 근거는 **깨진 링크로 그리지 않는다**
  */
 
+import { footnoteNumbers } from '@ratatouille/contracts'
 import { describe, expect, it } from 'vitest'
 import {
   type DocumentView,
   SECTIONS,
   citationsOf,
   describeRunState,
-  footnoteNumbers,
   isRunning,
   isStale,
 } from './document'

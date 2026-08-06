@@ -840,6 +840,33 @@ describe('⛔ 불변 이력 — 11절', () => {
     expect(meta.auth_type).toBe('chatgpt_oauth')
   })
 
+  it('⛔ 어느 Hermes profile로 돌았는지 남는다 — 6.6', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    /*
+     * profile을 지정하지 않았으므로 Hermes 기본 profile로 돈다. 그 사실이
+     * 이력에 남아야 「무엇으로 만든 결과인가」를 나중에 짚을 수 있다.
+     * GOAL 6.6이 요구한 `ratatouille` profile은 아직 없다.
+     */
+    expect((await readRunMeta(run.id)).profile).toBe('hermes_default')
+  })
+
+  it('profile을 지정하면 그 이름이 남는다', async () => {
+    const named = new DocumentQueue({
+      runner: new DocumentRunner({ spawnFn: fakeHermes(), profile: 'ratatouille' }),
+      sources,
+      revisions,
+      runs,
+      stateRoot: path.join(root, 'docruns-profile'),
+      provenance: DEFAULT_PROVENANCE,
+    })
+    await withRevision('src_09')
+    const run = await named.enqueue('src_09')
+
+    expect((await readRunMeta(run.id)).profile).toBe('ratatouille')
+  })
+
   it('시작과 종료 시각이 남는다 — 얼마나 걸렸는지 되짚을 수 있어야 한다', async () => {
     await withRevision()
     const run = await queue.enqueue('src_01')

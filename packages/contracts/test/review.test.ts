@@ -18,6 +18,7 @@ import {
   assertCanPromoteToCurrent,
   blockersForCurrent,
   emptyReview,
+  isSectionSettled,
   reviewAfterEdit,
   withParticle,
 } from '../src/index.ts'
@@ -254,5 +255,42 @@ describe('사람이 고치면 edited가 된다', () => {
       rubric: { faithful: 'pass' },
     })
     expect(next.rubric).toEqual({ faithful: 'pass' })
+  })
+})
+
+/**
+ * «사람이 봤다»의 판정 — 화면과 서버가 각자 갖고 있던 것을 한 곳으로 모았다.
+ *
+ * ⛔ 지금은 두 결론이 같지만, 한쪽에 상태가 하나 늘면 조용히 갈라진다.
+ *    「화면은 끝났다는데 확정이 막힌다」가 그 모습이다.
+ */
+describe('section이 끝났는가', () => {
+  it('확인했거나 고쳤으면 끝난 것이다', () => {
+    expect(isSectionSettled('accepted')).toBe(true)
+    expect(isSectionSettled('edited')).toBe(true)
+  })
+
+  it('「회의에 없었음」도 사람이 판단한 것이다 — 안 본 것이 아니다', () => {
+    expect(isSectionSettled('empty')).toBe(true)
+  })
+
+  it('아직 안 봤거나 보는 중이면 끝나지 않았다', () => {
+    expect(isSectionSettled('unreviewed')).toBe(false)
+    expect(isSectionSettled('in_progress')).toBe(false)
+  })
+
+  /*
+   * ⚠️ `empty`가 **정직한지**는 여기서 판정하지 않는다. 항목이 있는데 「없음」으로
+   *    넘긴 것은 확인이 아니라 건너뛴 것이고, 회의 내용을 아는 쪽이 판정한다.
+   */
+  it('⛔ 항목이 있는데 「없음」이면 확정은 여전히 막힌다', () => {
+    const review = emptyReview()
+    review.summary = { state: 'accepted', rubric: {} }
+    review.evidence = { state: 'accepted', rubric: {} }
+    review.tasks = { state: 'accepted', rubric: {} }
+    review.decisions = { state: 'empty', rubric: {} }
+
+    expect(isSectionSettled('empty')).toBe(true)
+    expect(blockersForCurrent(review, { decisions: 2, tasks: 0 })).toHaveLength(1)
   })
 })

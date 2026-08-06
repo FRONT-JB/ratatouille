@@ -67,6 +67,22 @@ export type SectionReview = {
 
 export type DocumentReview = Record<ReviewSection, SectionReview>
 
+/**
+ * 사람이 이 section을 「봤다」고 말한 상태인가.
+ *
+ * ⛔ **판정을 화면과 서버가 따로 갖고 있었다.** 화면은 `accepted|edited|empty`를
+ *    「끝남」으로 읽고, 서버는 `empty`를 따로 검사한 뒤 나머지를 `accepted|edited`로
+ *    봤다. 지금은 결론이 같지만 한쪽에 상태가 하나 늘면 조용히 갈라진다 —
+ *    「화면은 끝났다는데 확정이 막힌다」가 그 모습이다.
+ *
+ * ⚠️ `empty`가 **정직한지**는 여기서 판정하지 않는다. 항목이 있는데 「없음」으로
+ *    넘긴 것은 확인이 아니라 건너뛴 것이고, 그건 회의 내용을 아는
+ *    `blockersForCurrent`가 판정한다.
+ */
+export function isSectionSettled(state: SectionReviewState): boolean {
+  return state === 'accepted' || state === 'edited' || state === 'empty'
+}
+
 /** 아무도 아직 보지 않은 상태 */
 export function emptyReview(): DocumentReview {
   return {
@@ -205,7 +221,7 @@ export function blockersForCurrent(
           reason: `${label}에 항목이 있는데 「없음」으로 표시되어 있습니다.`,
         })
       }
-    } else if (r.state !== 'accepted' && r.state !== 'edited') {
+    } else if (!isSectionSettled(r.state)) {
       out.push({
         section,
         reason: `${withParticle(label, '을', '를')} 아직 확인하지 않았습니다.`,

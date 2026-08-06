@@ -11,7 +11,8 @@
 import {
   type DocumentProposal,
   UNSET_LABEL,
-  splitCitations,
+  footnoteNumbers,
+  toMarkdownFootnotes,
 } from '@ratatouille/contracts'
 import type { Frontmatter } from '../vault/document.ts'
 
@@ -57,7 +58,7 @@ export function renderMeetingNote(input: MeetingNoteInput): {
   frontmatter: Frontmatter
   body: string
 } {
-  const numbers = new Map(input.proposal.evidence.map((e, i) => [e.id, i + 1]))
+  const numbers = footnoteNumbers(input.proposal.evidence)
 
   return {
     frontmatter: {
@@ -139,21 +140,8 @@ function renderBody(
   return out.join('\n').trimEnd() + '\n'
 }
 
-/**
- * 본문의 `[seg_0]` 마커를 Markdown 각주 `[^1]`로 바꾼다.
- *
- * ⛔ 번호는 `evidence` 배열 순서다 — 화면의 각주 번호와 같아야 한다.
- *    모르는 id는 마커를 지우기만 한다. 없는 각주를 가리키면 Obsidian에서
- *    빈 링크가 되고, 그건 근거가 있다고 거짓말하는 것이다.
+/*
+ * 마커 → 각주 변환은 계약이 갖는다(`toMarkdownFootnotes`). 여기·결정 파일·화면이
+ * 각자 「번호는 evidence 순서」와 「모르면 지운다」를 구현하고 있었다.
  */
-function footnoted(text: string, numbers: Map<string, number>): string {
-  return splitCitations(text)
-    .map((part) =>
-      part.kind === 'text' ? part.text : renderMark(numbers.get(part.id))
-    )
-    .join('')
-}
-
-function renderMark(n: number | undefined): string {
-  return n === undefined ? '' : `[^${n}]`
-}
+const footnoted = toMarkdownFootnotes

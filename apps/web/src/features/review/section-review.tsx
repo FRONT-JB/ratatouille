@@ -5,6 +5,7 @@ import {
   type RubricVerdict,
   type SectionReview,
   type SectionReviewState,
+  isSectionSettled,
 } from '@ratatouille/contracts'
 import { Button } from '@/components/ui/button'
 import {
@@ -40,10 +41,12 @@ const VERDICT_LABEL: Record<RubricVerdict, string> = {
 /** 확정을 막는 판정. 계약과 같은 값을 본다 — 화면이 따로 판정하지 않는다 */
 const BLOCKING: RubricVerdict[] = ['fix_required', 'uncertain']
 
-/** 이 상태는 «사람이 봤다»로 친다 */
-function isDone(state: SectionReviewState): boolean {
-  return state === 'accepted' || state === 'edited' || state === 'empty'
-}
+/*
+ * «사람이 봤다»의 판정은 계약이 갖는다(`isSectionSettled`). 화면과 서버가 각자
+ * 갖고 있었고, 지금은 결론이 같지만 한쪽에 상태가 하나 늘면 조용히 갈라진다 —
+ * 「화면은 끝났다는데 확정이 막힌다」가 그 모습이다.
+ */
+const isDone = isSectionSettled
 
 function label(state: SectionReviewState): string {
   if (state === 'edited') return '고침'

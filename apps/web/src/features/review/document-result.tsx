@@ -27,6 +27,7 @@ import {
   type ReviewSection,
   type RubricVerdict,
   type SectionReviewState,
+  footnoteNumbers,
   splitCitations,
 } from '@ratatouille/contracts'
 import { Editable } from './editable'
@@ -38,7 +39,6 @@ import {
   SECTIONS,
   citationsOf,
   contextAround,
-  footnoteNumbers,
   isRunning,
   isStale,
   reviewOf,

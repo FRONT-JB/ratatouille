@@ -125,18 +125,11 @@ export function citationsOf(
   return out
 }
 
-/**
- * 각주 번호표 — 세그먼트 ID → 번호.
- *
- * ⛔ **번호는 `proposal.evidence`의 순서다.** 그 배열은 서버가 인용된 순서대로
- *    (요약 → 결정 → Action Item) 채운다. 화면이 따로 번호를 매기면 `원문 근거`
- *    각주란의 번호와 본문 각주의 번호가 어긋나고, 어긋나면 각주가 무의미하다.
+/*
+ * 각주 번호표는 계약이 갖는다(`footnoteNumbers`). 화면·회의록·결정 파일이
+ * 각자 「번호는 evidence 순서」를 구현하고 있었다 — 한 곳만 고쳐지면 본문
+ * 각주와 「원문 근거」란의 번호가 어긋나고, 어긋나면 각주가 무의미해진다.
  */
-export function footnoteNumbers(
-  evidence: readonly EvidenceEntry[]
-): Map<string, number> {
-  return new Map(evidence.map((e, i) => [e.id, i + 1]))
-}
 
 /**
  * 근거 앞뒤 몇 줄.

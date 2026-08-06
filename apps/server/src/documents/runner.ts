@@ -73,6 +73,21 @@ export function looksLikeAuthFailure(text: string): boolean {
 export class DocumentRunner {
   constructor(private readonly deps: RunnerDeps = {}) {}
 
+  /**
+   * 실제로 쓰는 Hermes profile. 지정하지 않으면 Hermes의 기본 profile이다.
+   *
+   * ⛔ **이력이 이 값을 여기서 읽어야 한다.** 같은 환경변수를 이력 쪽에서 또
+   *    읽으면, profile을 코드로 넘기도록 바꾸는 날 기록만 옛 값을 가리킨다.
+   *    「어떤 모델이 무엇을 만들었나」를 되짚는 것이 이 기록의 목적이다(11절).
+   *
+   * ⚠️ GOAL 6.6은 profile `ratatouille`를 요구하지만 그 profile은 아직 없다.
+   *    없는 것을 기본값으로 박으면 AI 정리가 통째로 깨지므로, **비어 있다는
+   *    사실을 이력에 남겨** 나중에 「무엇으로 돌았나」를 확인할 수 있게 한다.
+   */
+  get profile(): string | null {
+    return this.deps.profile ?? null
+  }
+
   async run(input: {
     segments: readonly TranscriptSegment[]
     context?: { title?: string | null; participants?: string[] }

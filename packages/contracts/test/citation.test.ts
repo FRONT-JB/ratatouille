@@ -7,7 +7,13 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { citedIdsIn, splitCitations, stripCitations } from '../src/citation.ts'
+import {
+  citedIdsIn,
+  footnoteNumbers,
+  splitCitations,
+  stripCitations,
+  toMarkdownFootnotes,
+} from '../src/citation.ts'
 
 describe('마커 뽑기', () => {
   it('문장 안의 ID를 순서대로 뽑는다', () => {
@@ -65,5 +71,54 @@ describe('마커 없는 본문', () => {
 
   it('마커 앞의 공백을 남기지 않는다', () => {
     expect(stripCitations('검토했다 [seg_1].')).toBe('검토했다.')
+  })
+})
+
+/**
+ * 각주 번호와 Markdown 변환.
+ *
+ * ⛔ **화면·회의록·결정 파일이 각자 구현하고 있었다.** 셋이 같은 규칙을 따로
+ *    들고 있으면 한 곳만 고쳐지는 날이 오고, 그때 본문 각주와 「원문 근거」란의
+ *    번호가 어긋난다. 어긋난 각주는 근거가 아니라 오답이다.
+ */
+describe('각주 번호', () => {
+  const EVIDENCE = [{ id: 'seg_5' }, { id: 'seg_1' }, { id: 'seg_9' }]
+
+  it('⛔ 배열 순서가 곧 번호다 — ID 순서가 아니다', () => {
+    const n = footnoteNumbers(EVIDENCE)
+    expect(n.get('seg_5')).toBe(1)
+    expect(n.get('seg_1')).toBe(2)
+    expect(n.get('seg_9')).toBe(3)
+  })
+
+  it('없는 ID는 번호가 없다', () => {
+    expect(footnoteNumbers(EVIDENCE).get('seg_999')).toBeUndefined()
+  })
+
+  it('빈 배열도 받는다 — 근거 없는 결과가 터지면 안 된다', () => {
+    expect(footnoteNumbers([]).size).toBe(0)
+  })
+})
+
+describe('Markdown 각주로 바꾸기', () => {
+  const numbers = footnoteNumbers([{ id: 'seg_5' }, { id: 'seg_1' }])
+
+  it('마커가 각주 번호가 된다', () => {
+    expect(toMarkdownFootnotes('연기했다[seg_5].', numbers)).toBe('연기했다[^1].')
+  })
+
+  it('한 문장에 여럿이 있어도 각자 번호를 받는다', () => {
+    expect(toMarkdownFootnotes('연기[seg_5]하고 공지[seg_1]한다.', numbers)).toBe(
+      '연기[^1]하고 공지[^2]한다.'
+    )
+  })
+
+  it('⛔ 번호표에 없는 ID는 마커를 지우기만 한다 — 빈 각주는 거짓말이다', () => {
+    // 정의 없는 `[^3]`을 남기면 Obsidian에서 빈 링크가 된다.
+    expect(toMarkdownFootnotes('지어냈다[seg_99].', numbers)).toBe('지어냈다.')
+  })
+
+  it('마커가 없으면 본문 그대로다', () => {
+    expect(toMarkdownFootnotes('그냥 문장', numbers)).toBe('그냥 문장')
   })
 })

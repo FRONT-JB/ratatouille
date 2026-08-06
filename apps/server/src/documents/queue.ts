@@ -845,6 +845,15 @@ export class DocumentQueue {
       },
       meta: {
         ...this.deps.provenance,
+        /*
+         * ⛔ **실행기에게 물어서 적는다.** 설정을 여기서 다시 읽으면 profile을
+         *    넘기는 방식이 바뀌는 날 기록만 옛 값을 가리킨다.
+         *
+         * ⚠️ `hermes_default`는 「Hermes 기본 profile로 돌았다」는 사실이지
+         *    profile 이름이 아니다. GOAL 6.6이 요구한 `ratatouille` profile은
+         *    아직 없고, 이 값이 그 사실을 이력에 남긴다.
+         */
+        profile: this.deps.runner.profile ?? 'hermes_default',
         attempt: ctx.attempt,
         retry_of: ctx.retryOf,
         started_at: run.createdAt,

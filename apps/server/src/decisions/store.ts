@@ -13,9 +13,10 @@ import {
   type DecisionState,
   type EvidenceEntry,
   RuleViolationError,
+  footnoteNumbers,
   reverseDecision,
-  splitCitations,
   supersedeDecision,
+  toMarkdownFootnotes,
 } from '@ratatouille/contracts'
 import type { Frontmatter } from '../vault/document.ts'
 import type { VaultStore } from '../vault/store.ts'
@@ -236,17 +237,22 @@ function blankToNull(v: string | null | undefined): string | null {
  */
 function renderBody(d: Decision, entries: readonly EvidenceEntry[]): string {
   const known = new Map(entries.map((e) => [e.id, e]))
-  const numbers = new Map<string, number>()
+  /*
+   * 이 파일이 쓸 각주는 **이 결정이 인용한 것뿐**이다. 회의록 전체의 번호를
+   * 그대로 쓰면 결정 파일 하나에 `[^7]`만 덩그러니 남는다.
+   */
   const used: EvidenceEntry[] = []
+  const seen = new Set<string>()
   for (const id of d.evidence) {
     const entry = known.get(id)
-    if (!entry || numbers.has(id)) continue
-    numbers.set(id, used.length + 1)
+    if (!entry || seen.has(id)) continue
+    seen.add(id)
     used.push(entry)
   }
+  const numbers = footnoteNumbers(used)
 
   const out = [
-    footnoted(d.what, numbers),
+    toMarkdownFootnotes(d.what, numbers),
     '',
   ]
   if (used.length > 0) {
@@ -257,12 +263,3 @@ function renderBody(d: Decision, entries: readonly EvidenceEntry[]): string {
   return out.join('\n').trimEnd() + '\n'
 }
 
-function footnoted(text: string, numbers: Map<string, number>): string {
-  return splitCitations(text)
-    .map((part) => {
-      if (part.kind === 'text') return part.text
-      const n = numbers.get(part.id)
-      return n === undefined ? '' : `[^${n}]`
-    })
-    .join('')
-}

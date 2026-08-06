@@ -672,3 +672,95 @@ describe('⛔ 초안을 요청할 입구가 화면에 있다 — 규칙 5', () =
     )
   })
 })
+
+/**
+ * 루브릭이 «품질 도구»인가 «클릭해야 하는 행정 절차»인가 — Phase 6 품질 게이트.
+ *
+ * ⛔ **클릭 수는 재는 순간부터 계약이다.** 기준을 하나 늘리거나 확인 버튼을
+ *    쪼개는 것은 언제나 「더 꼼꼼해지는」 것처럼 보이지만, 그 비용은 다음 회의
+ *    부터 매번 지불된다. 늘어나면 이 테스트가 먼저 말한다.
+ *
+ * ⚠️ 재는 것은 **문제가 없는 결과를 확정하는 최단 경로**다. 「수정 필요」를
+ *    찾았을 때 기준별로 펼쳐 판정하는 클릭은 여기 없다 — 그건 문제를 발견한
+ *    사람이 치르는 비용이고, 매번 치르는 비용이 아니다.
+ */
+describe('⛔ 한 산출물을 확정하는 데 드는 클릭 수', () => {
+  /** 검수 상태를 실제로 들고 있는 서버 대역. 정적 응답으로는 클릭을 셀 수 없다 */
+  function reviewingServer() {
+    const review: Record<string, { state: string; rubric: Record<string, string> }> = {
+      summary: { state: 'unreviewed', rubric: {} },
+      decisions: { state: 'unreviewed', rubric: {} },
+      tasks: { state: 'unreviewed', rubric: {} },
+      evidence: { state: 'unreviewed', rubric: {} },
+    }
+    let documentState = 'reviewing'
+    const ok = (v: unknown) =>
+      ({ ok: true, status: 200, json: async () => v }) as unknown as Response
+
+    // 서버와 같은 판정: 확인했거나 고쳤거나 「없었음」이면 끝난 것이다
+    const settled = (s: string) => s === 'accepted' || s === 'edited' || s === 'empty'
+    const view = () => ({
+      ...WITH_DOCUMENT,
+      review,
+      documentState,
+      blockers: Object.entries(review)
+        .filter(([, r]) => !settled(r.state))
+        .map(([section]) => ({ section, reason: '아직 확인하지 않았습니다.' })),
+    })
+
+    const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      if (url.includes('/decisions')) return ok({ decisions: [] })
+      if (url.endsWith('/document/review')) {
+        review[body.section] = { ...review[body.section]!, ...body }
+        return ok(view())
+      }
+      if (url.endsWith('/document/current')) {
+        documentState = 'current'
+        return ok(view())
+      }
+      if (url.includes('/document')) return ok(view())
+      return ok(REVISION({ revisionState: 'transcript_approved', approvedAt: 'now' }))
+    })
+    return { fetchFn }
+  }
+
+  it('네 section 확인 + 확정 = 다섯 번이다', async () => {
+    const s = reviewingServer()
+    const screen = await render(
+      <ReviewPage sourceId='src_01' deps={{ fetch: s.fetchFn as never, saveDelayMs: 20 }} />
+    )
+    await vi.waitFor(
+      () => expect(screen.container.querySelector('[data-testid=promote]')).toBeTruthy(),
+      { timeout: 5000 }
+    )
+
+    let clicks = 0
+    // 이 결과에는 결정도 할 일도 없다 — 「회의에 없었음」이 정직한 답이다
+    for (const section of ['summary', 'evidence'] as const) {
+      await screen.getByTestId(`accept-${section}`).click()
+      clicks++
+    }
+    for (const section of ['decisions', 'tasks'] as const) {
+      await screen.getByTestId(`empty-${section}`).click()
+      clicks++
+    }
+
+    await vi.waitFor(
+      () =>
+        expect(
+          screen.container.querySelector('[data-testid=promote]')?.hasAttribute('disabled')
+        ).toBe(false),
+      { timeout: 5000 }
+    )
+    await screen.getByTestId('promote').click()
+    clicks++
+
+    // ⛔ 이 숫자가 늘면 루브릭이 행정 절차가 되고 있다는 뜻이다
+    expect(clicks).toBe(5)
+    await vi.waitFor(
+      () => expect(screen.container.textContent).toContain('확정됨'),
+      { timeout: 5000 }
+    )
+  })
+})
