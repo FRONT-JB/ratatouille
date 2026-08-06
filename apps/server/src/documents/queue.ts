@@ -13,10 +13,21 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import {
   type DocumentProposal,
+  type DocumentReview,
   type DocumentRunState,
+  type DocumentState,
   type EvidenceViolation,
   type TranscriptSegment,
+  type ReviewBlocker,
+  type ReviewSection,
+  RuleViolationError,
+  type RubricVerdict,
+  type SectionReviewState,
   assertCanCreateDocumentRun,
+  assertCanPromoteToCurrent,
+  blockersForCurrent,
+  emptyReview,
+  reviewAfterEdit,
   canPromoteToProposed,
   transition,
 } from '@ratatouille/contracts'
@@ -38,9 +49,43 @@ export type DocumentRun = {
   proposal: DocumentProposal | null
   elapsedMs: number | null
   createdAt: string
+  /**
+   * 사람의 검수 상태.
+   *
+   * ⛔ **run과 함께 산다.** 다시 정리하면 새 run이고 검수도 처음부터다 —
+   *    내용이 바뀌었는데 「확인함」이 따라오면 아무도 안 본 결과가 확정된다.
+   */
+  review: DocumentReview
+  /**
+   * 문서 상태(`reviewing` / `current` / `stale`).
+   *
+   * ⛔ `documentRun`과 **다른 머신**이다. run은 "모델이 만들었나"를,
+   *    document는 "사람이 확정했나"를 말한다.
+   */
+  documentState: DocumentState
 }
 
 const STATE_FILE = 'run.state.json'
+
+export class DocumentRunNotFoundError extends Error {
+  constructor(readonly runId: string) {
+    super(`정리 결과 ${runId}를 찾을 수 없습니다.`)
+    this.name = 'DocumentRunNotFoundError'
+  }
+}
+
+/**
+ * 회의에 실제로 항목이 있었나.
+ *
+ * ⛔ 「없음」이 정직한지 판정하는 근거다. 항목이 있는데 「없음」으로 넘기면
+ *    확인이 아니라 건너뛴 것이다.
+ */
+function countsOf(run: DocumentRun): { decisions: number; tasks: number } {
+  return {
+    decisions: run.proposal?.decisions.length ?? 0,
+    tasks: run.proposal?.tasks.length ?? 0,
+  }
+}
 
 export type DocumentQueueDeps = {
   runner: DocumentRunner
@@ -112,6 +157,12 @@ export class DocumentQueue {
           'utf8'
         )
         const run = JSON.parse(raw) as DocumentRun
+        /*
+         * ⛔ **없던 필드를 채운다.** 이 필드가 생기기 전에 만든 실행이 디스크에
+         *    남아 있다. `undefined`가 그대로 흘러가면 검수 화면이 터진다.
+         */
+        run.review ??= emptyReview()
+        run.documentState ??= 'reviewing'
         // ⛔ 재기동 시점에 `documenting`이던 것은 실제로는 죽어 있다.
         //    그대로 두면 화면이 영원히 "정리 중"을 보여준다.
         if (run.state === 'documenting' || run.state === 'queued') {
@@ -134,6 +185,82 @@ export class DocumentQueue {
     const tmp = `${full}.${process.pid}.tmp`
     await fs.writeFile(tmp, `${JSON.stringify(run, null, 2)}\n`, 'utf8')
     await fs.rename(tmp, full)
+  }
+
+  /**
+   * 한 section의 검수 상태를 바꾼다.
+   *
+   * ⛔ **부분 갱신이다.** 상태만 바꾸는 경우와 루브릭 판정만 바꾸는 경우가
+   *    따로 있다. 통째로 덮으면 다른 쪽이 조용히 지워진다.
+   */
+  async review(
+    runId: string,
+    section: ReviewSection,
+    patch: { state?: SectionReviewState; rubric?: Record<string, RubricVerdict> }
+  ): Promise<DocumentRun> {
+    const run = this.runs.get(runId)
+    if (!run) throw new DocumentRunNotFoundError(runId)
+    /*
+     * ⛔ 확정된 문서의 검수 상태를 바꾸지 않는다. 바꾸려면 되돌린 뒤에 한다 —
+     *    확정본이 소리 없이 흔들리면 무엇을 확정했는지 알 수 없다.
+     */
+    if (run.documentState === 'current') {
+      throw new RuleViolationError(
+        'document-already-current',
+        '이미 확정된 문서입니다. 되돌린 뒤에 다시 검수해 주세요.'
+      )
+    }
+    const cur = run.review[section]
+    run.review = {
+      ...run.review,
+      [section]: {
+        state: patch.state ?? cur.state,
+        rubric: patch.rubric ? { ...cur.rubric, ...patch.rubric } : cur.rubric,
+      },
+    }
+    await this.persist(run)
+    return run
+  }
+
+  /** 사람이 고쳤다 → `edited`. 루브릭 판정은 남는다 */
+  async markEdited(runId: string, section: ReviewSection): Promise<DocumentRun> {
+    const run = this.runs.get(runId)
+    if (!run) throw new DocumentRunNotFoundError(runId)
+    return this.review(runId, section, {
+      state: reviewAfterEdit(run.review[section]).state,
+    })
+  }
+
+  /** 무엇이 확정을 막고 있나 */
+  blockers(runId: string): ReviewBlocker[] {
+    const run = this.runs.get(runId)
+    if (!run) return []
+    return blockersForCurrent(run.review, countsOf(run))
+  }
+
+  /**
+   * 규칙 7 — 검수를 마쳐야 `current`가 된다.
+   *
+   * ⛔ **여기가 유일한 승격 경로다.** 다른 곳에서 `documentState`를 직접
+   *    건드리면 검수를 건너뛴 확정본이 생긴다.
+   */
+  async promote(runId: string): Promise<DocumentRun> {
+    const run = this.runs.get(runId)
+    if (!run) throw new DocumentRunNotFoundError(runId)
+    if (run.state !== 'proposed') {
+      throw new RuleViolationError(
+        'document-requires-proposed-run',
+        `정리가 '${run.state}' 상태입니다. 완료된 결과만 확정할 수 있습니다.`
+      )
+    }
+    assertCanPromoteToCurrent(run.review, countsOf(run))
+    run.documentState = transition(
+      'document',
+      run.documentState,
+      'current'
+    ) as DocumentState
+    await this.persist(run)
+    return run
   }
 
   get(runId: string): DocumentRun | null {
@@ -206,6 +333,8 @@ export class DocumentQueue {
       proposal: null,
       elapsedMs: null,
       createdAt: this.now(),
+      review: emptyReview(),
+      documentState: 'reviewing',
     }
     this.runs.set(run.id, run)
     await this.persist(run)

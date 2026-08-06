@@ -336,6 +336,85 @@ describe('⛔ Action Item의 담당자와 기한', () => {
   })
 })
 
+describe('⛔ 사람이 검수해야 current가 된다', () => {
+  it('만들어진 직후에는 아무도 안 본 상태다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    expect(run.documentState).toBe('reviewing')
+    expect(run.review.summary.state).toBe('unreviewed')
+  })
+
+  it('⛔ 검수 전에는 승격이 거절된다 — AI 판정만으로 확정되는 길이 없다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await expect(queue.promote(run.id)).rejects.toThrow(RuleViolationError)
+  })
+
+  it('무엇이 막고 있는지 알려준다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    expect(queue.blockers(run.id).map((b) => b.section)).toEqual([
+      'summary',
+      'decisions',
+      'tasks',
+      'evidence',
+    ])
+  })
+
+  it('section별로 따로 확인한다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await queue.review(run.id, 'summary', { state: 'accepted' })
+
+    expect(queue.get(run.id)!.review.summary.state).toBe('accepted')
+    expect(queue.get(run.id)!.review.tasks.state).toBe('unreviewed')
+  })
+
+  it('넷을 다 확인하면 승격된다', async () => {
+    // 이 모델 출력에는 결정 1건, 할 일 0건이 들어 있다
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    for (const s of ['summary', 'decisions', 'evidence'] as const) {
+      await queue.review(run.id, s, { state: 'accepted' })
+    }
+    // 할 일이 실제로 없으므로 「없음」이 정직하다
+    await queue.review(run.id, 'tasks', { state: 'empty' })
+
+    expect((await queue.promote(run.id)).documentState).toBe('current')
+  })
+
+  it('⛔ 루브릭에 「수정 필요」가 남아 있으면 막힌다 — 결함 B 대응', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    for (const s of ['summary', 'decisions', 'evidence'] as const) {
+      await queue.review(run.id, s, { state: 'accepted' })
+    }
+    await queue.review(run.id, 'tasks', { state: 'empty' })
+    await queue.review(run.id, 'decisions', {
+      rubric: { 'decision-vs-proposal': 'fix_required' },
+    })
+
+    await expect(queue.promote(run.id)).rejects.toThrow(/수정 필요/)
+  })
+
+  it('⛔ 검수 상태가 디스크에 남는다 — 재시작해도 다시 봐야 하면 안 된다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await queue.review(run.id, 'summary', { state: 'accepted' })
+
+    const reloaded = new DocumentQueue({
+      runner: new DocumentRunner({ spawnFn: fakeHermes() }),
+      sources,
+      revisions,
+      runs,
+      stateRoot: path.join(root, 'docruns'),
+      provenance: DEFAULT_PROVENANCE,
+    })
+    await reloaded.load()
+    expect(reloaded.get(run.id)!.review.summary.state).toBe('accepted')
+  })
+})
+
 describe('⛔ 불변 이력 — 11절', () => {
   it('input.json이 ID와 hash로만 참조한다', async () => {
     await withRevision()

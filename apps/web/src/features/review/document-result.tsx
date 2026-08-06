@@ -256,8 +256,13 @@ function Sections({
           ) : (
             <div className='flex flex-col gap-6'>
               {narrative.map((n, i) => (
-                <section key={i} className='flex flex-col gap-2' data-topic={i}>
-                  <h3 className='font-medium'>{n.heading}</h3>
+                <section key={i} className='flex flex-col gap-3' data-topic={i}>
+                  {/*
+                    ⛔ 결정 사항·Action Item의 제목과 **같은 모양**이다.
+                       같은 층위인데 하나만 진하고 크면 두 개의 서로 다른
+                       화면을 보는 것처럼 읽힌다.
+                  */}
+                  <SectionLabel>{n.heading}</SectionLabel>
                   <p className='text-base whitespace-pre-wrap'>{body(n.body)}</p>
                 </section>
               ))}
@@ -587,11 +592,26 @@ function Section({
         제목은 **라벨**이지 읽을 글이 아니다. 본문보다 작고 조용하게 둔다 —
         예전에는 제목이 본문과 같은 크기라 어느 쪽이 내용인지 알 수 없었다.
       */}
-      <h3 className='text-muted-foreground text-sm font-medium tracking-wide'>
-        {title}
-      </h3>
+      <SectionLabel>{title}</SectionLabel>
       {children}
     </section>
+  )
+}
+
+/**
+ * 결과 덩어리의 제목.
+ *
+ * ⛔ **한 곳에서만 정한다.** 회의 내용의 주제 제목과 결정 사항·Action Item의
+ *    section 제목은 같은 층위다. 각자 스타일을 들면 반드시 갈라지고,
+ *    실제로 하나는 진한 16px, 하나는 흐린 14px이 되어 있었다.
+ *
+ * 제목은 **라벨**이지 읽을 글이 아니다. 본문보다 작고 조용하게 둔다.
+ */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className='text-muted-foreground text-sm font-medium tracking-wide'>
+      {children}
+    </h3>
   )
 }
 
