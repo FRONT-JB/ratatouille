@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { PHRASE_PLACEHOLDER } from '@ratatouille/contracts'
 import {
   type NextAction,
   type SessionSource,
@@ -53,7 +54,8 @@ export function ProcessingStatus({
                 className='text-muted-foreground border-border rounded border px-1.5 py-0.5 text-[10px]'
                 data-testid='provisional-phrase'
               >
-                문구 미확정
+                {/* 문구를 여기서 따로 적지 않는다 — 계약이 정한 표시를 쓴다 */}
+                {PHRASE_PLACEHOLDER}
               </span>
             )}
           </div>

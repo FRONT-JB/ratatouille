@@ -20,7 +20,7 @@ import {
 } from './audio.ts'
 import {
   type ParsedTranscript,
-  type TranscriptSegment,
+  type WhisperSegment,
   buildWhisperArgs,
   parseWhisperJson,
   suspiciousDuration,
@@ -270,25 +270,31 @@ export class TranscriptionRunner {
 }
 
 /**
- * whisper 세그먼트를 evidence 검증이 쓰는 형식으로 옮긴다.
+ * 세그먼트 시각을 evidence용 문자열로 만든다.
  *
- * ⛔ **timestamp 포맷은 여기 한 곳에서만 만든다.** `verifyEvidence`는 모델이
- *    인용한 timestamp와 원본을 **문자열 완전 일치**로 비교한다(Phase 0 결함 A
- *    대응). 포맷이 두 군데서 만들어지면 한쪽이 `00:01:5.0`, 다른 쪽이
- *    `00:01:05,000`이 되어 멀쩡한 인용이 전부 위반으로 잡힌다.
+ * ⛔ **포맷은 여기 한 곳에서만 만든다.** `verifyEvidence`는 모델이 인용한
+ *    timestamp와 원본을 **문자열 완전 일치**로 비교한다(Phase 0 결함 A 대응).
+ *    두 군데서 만들면 한쪽이 `00:01:05`, 다른 쪽이 `00:01:05,000`이 되어
+ *    멀쩡한 인용이 전부 위반으로 잡힌다.
+ *
+ * ⛔ **`HH:MM:SS`다. 밀리초를 붙이지 않는다.**
+ *    Phase 0 실측에서 모델에게 준 세그먼트도, 모델이 돌려준 인용도 전부
+ *    `00:02:27` 형식이었다(`contracts/test/fixtures/meeting-*.json`). 그 조건에서
+ *    인용 정확도 22/22·환각 0을 쟀다. 밀리초를 붙이면 그 측정이 무효가 되고
+ *    `contracts/evidence.ts`의 `TranscriptSegment.timestamp` 주석과도 어긋난다.
+ *    초 단위면 "timestamp를 눌러 그 지점을 재생"하는 데도 충분하다.
  */
 export function formatTimestamp(ms: number): string {
   const total = Math.max(0, Math.round(ms))
-  const msPart = total % 1000
   const s = Math.floor(total / 1000) % 60
   const m = Math.floor(total / 60_000) % 60
   const h = Math.floor(total / 3_600_000)
-  const p = (n: number, w = 2) => String(n).padStart(w, '0')
-  return `${p(h)}:${p(m)}:${p(s)},${p(msPart, 3)}`
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(h)}:${p(m)}:${p(s)}`
 }
 
 export function toEvidenceSegments(
-  segments: readonly TranscriptSegment[]
+  segments: readonly WhisperSegment[]
 ): Array<{ id: string; timestamp: string; text: string }> {
   return segments.map((s) => ({
     id: s.id,

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
+import { verifyEvidence } from '@ratatouille/contracts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   TranscriptionFailed,
@@ -41,24 +42,28 @@ describe('⛔ timestamp 포맷은 한 곳에서만 만든다', () => {
 
   it('whisper 출력과 같은 표기를 쓴다', () => {
     // 실제 whisper-cli 출력: "00:00:03,560"
-    expect(formatTimestamp(3560)).toBe('00:00:03,560')
+    expect(formatTimestamp(3560)).toBe('00:00:03')
   })
 
   it('0을 채운다', () => {
-    expect(formatTimestamp(0)).toBe('00:00:00,000')
+    expect(formatTimestamp(0)).toBe('00:00:00')
   })
 
   it('분과 시를 올린다', () => {
-    expect(formatTimestamp(65_000)).toBe('00:01:05,000')
-    expect(formatTimestamp(3_725_123)).toBe('01:02:05,123')
+    expect(formatTimestamp(65_000)).toBe('00:01:05')
+    expect(formatTimestamp(3_725_123)).toBe('01:02:05')
   })
 
-  it('밀리초를 세 자리로 유지한다', () => {
-    expect(formatTimestamp(1005)).toBe('00:00:01,005')
+  it('⛔ 밀리초를 붙이지 않는다 — Phase 0 fixture가 HH:MM:SS다', () => {
+    // 모델에게 준 세그먼트도, 모델이 돌려준 인용도 `00:02:27` 형식이었다.
+    // verifyEvidence가 문자열 완전 일치로 보므로 여기서 밀리초를 붙이면
+    // 멀쩡한 인용이 전부 timestamp_mismatch가 된다.
+    expect(formatTimestamp(1005)).toBe('00:00:01')
+    expect(formatTimestamp(1999)).toBe('00:00:01')
   })
 
   it('음수는 0으로 본다', () => {
-    expect(formatTimestamp(-5)).toBe('00:00:00,000')
+    expect(formatTimestamp(-5)).toBe('00:00:00')
   })
 
   it('evidence 형식으로 옮긴다', () => {
@@ -67,8 +72,8 @@ describe('⛔ timestamp 포맷은 한 곳에서만 만든다', () => {
       { id: 'seg_1', startMs: 3560, endMs: 7000, text: '네', speaker: '0' },
     ])
     expect(segs).toEqual([
-      { id: 'seg_0', timestamp: '00:00:00,000', text: '안녕하세요' },
-      { id: 'seg_1', timestamp: '00:00:03,560', text: '네' },
+      { id: 'seg_0', timestamp: '00:00:00', text: '안녕하세요' },
+      { id: 'seg_1', timestamp: '00:00:03', text: '네' },
     ])
   })
 })
@@ -261,7 +266,8 @@ describe.skipIf(!canRunReal)('⛔ 실제 오디오 전사 — Phase 4 품질 게
     const evidence = toEvidenceSegments(r.segments)
     expect(evidence.length).toBeGreaterThan(0)
     for (const e of evidence) {
-      expect(e.timestamp).toMatch(/^\d{2}:\d{2}:\d{2},\d{3}$/)
+      // ⛔ HH:MM:SS. Phase 0 fixture와 같은 형식이어야 verifyEvidence가 통과한다.
+      expect(e.timestamp).toMatch(/^\d{2}:\d{2}:\d{2}$/)
     }
     expect(evidence.map((e) => e.id)).toEqual(r.segments.map((s) => s.id))
   })
@@ -276,5 +282,64 @@ describe.skipIf(canRunReal)('실제 전사 테스트를 건너뜀', () => {
     ].filter(Boolean)
     console.warn(`[전사] 실제 전사 테스트를 건너뛴다 — ${missing.join(', ')}`)
     expect(missing.length).toBeGreaterThan(0)
+  })
+})
+
+describe('⛔ evidence 검증과 형식이 어긋나지 않는다', () => {
+  // 이 파일이 만드는 timestamp는 verifyEvidence가 **문자열 완전 일치**로
+  // 비교하는 대상이다. 형식이 한 글자만 달라도 멀쩡한 인용이 전부
+  // timestamp_mismatch가 되고, 그 사실은 Phase 6에서야 드러난다.
+  //
+  // Phase 0 실측 fixture가 유일한 근거다. 거기 담긴 형식과 대조한다.
+
+  const FIXTURE = path.resolve(
+    import.meta.dirname,
+    '../../../packages/contracts/test/fixtures/meeting-segments.json'
+  )
+
+  it('실측 fixture의 timestamp 형식과 같다', async () => {
+    const segs = JSON.parse(await readFile(FIXTURE, 'utf8')) as Array<{
+      timestamp: string
+    }>
+    expect(segs.length).toBeGreaterThan(0)
+
+    // fixture가 쓰는 형식을 그대로 만들 수 있어야 한다
+    for (const s of segs.slice(0, 20)) {
+      const [h, m, sec] = s.timestamp.split(':').map(Number)
+      const ms = ((h ?? 0) * 3600 + (m ?? 0) * 60 + (sec ?? 0)) * 1000
+      expect(formatTimestamp(ms)).toBe(s.timestamp)
+    }
+  })
+
+  it('⛔ 실측 fixture로 verifyEvidence를 통과한다', async () => {
+    // 모델이 실제로 낸 인용(meeting-proposal.json)이 우리가 만든 형식의
+    // 세그먼트와 대조해서 timestamp 불일치가 없어야 한다.
+    const segs = JSON.parse(await readFile(FIXTURE, 'utf8')) as Array<{
+      id: string
+      timestamp: string
+      text: string
+    }>
+    const proposal = JSON.parse(
+      await readFile(
+        path.resolve(
+          import.meta.dirname,
+          '../../../packages/contracts/test/fixtures/meeting-proposal.json'
+        ),
+        'utf8'
+      )
+    )
+
+    // 우리 포맷터로 다시 만든 세그먼트
+    const rebuilt = segs.map((s) => {
+      const [h, m, sec] = s.timestamp.split(':').map(Number)
+      const ms = ((h ?? 0) * 3600 + (m ?? 0) * 60 + (sec ?? 0)) * 1000
+      return { id: s.id, timestamp: formatTimestamp(ms), text: s.text }
+    })
+
+    const violations = verifyEvidence(proposal, rebuilt)
+    const timestampMismatches = violations.filter(
+      (v) => v.kind === 'timestamp_mismatch'
+    )
+    expect(timestampMismatches).toEqual([])
   })
 })

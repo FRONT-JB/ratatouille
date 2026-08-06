@@ -85,7 +85,16 @@ export function buildWhisperArgs(opts: WhisperOptions): string[] {
   return args
 }
 
-export type TranscriptSegment = {
+/**
+ * whisper가 낸 세그먼트 하나.
+ *
+ * ⚠️ `contracts/evidence.ts`의 `TranscriptSegment`와 **다른 타입이다.**
+ *    이쪽은 밀리초 offset과 화자 라벨을 가진 원본이고, 저쪽은 evidence 대조용
+ *    (`timestamp` 문자열 + text)이다. 이름을 같게 두면 어느 쪽인지 모른 채
+ *    섞여 쓰이므로 여기서는 `WhisperSegment`로 부른다.
+ *    변환은 `runner.toEvidenceSegments` 한 곳에서만 한다.
+ */
+export type WhisperSegment = {
   id: string
   startMs: number
   endMs: number
@@ -96,7 +105,7 @@ export type TranscriptSegment = {
 
 export type ParsedTranscript = {
   language: string | null
-  segments: TranscriptSegment[]
+  segments: WhisperSegment[]
 }
 
 type WhisperRow = {
@@ -126,7 +135,7 @@ export function parseWhisperJson(raw: string): ParsedTranscript {
     throw new Error('whisper 출력에 transcription 배열이 없다.')
   }
 
-  const segments: TranscriptSegment[] = []
+  const segments: WhisperSegment[] = []
   for (const row of parsed.transcription) {
     const text = (row.text ?? '').trim()
     if (!text) continue

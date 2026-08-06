@@ -13,16 +13,10 @@
 
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import type { CaptureMode, TrackKind } from '@ratatouille/contracts'
+import type { CaptureMode } from '@ratatouille/contracts'
 
 /** whisper.cpp가 요구하는 샘플레이트 */
 export const WHISPER_SAMPLE_RATE = 16_000
-
-export type TrackChunks = {
-  track: TrackKind
-  /** 순번 오름차순 파일 경로 */
-  files: string[]
-}
 
 /**
  * ffmpeg 인자를 만든다.
