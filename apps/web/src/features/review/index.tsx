@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Loader2, Lock, PanelRight, Sparkles } from 'lucide-react'
+import { CheckCheck, Loader2, Lock, PanelRight, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import type { FetchLike } from '../processing/session'
 import { useAudioController } from './audio-controller'
 import { AudioPlayer } from './audio-player'
-import { isRunning } from './document'
+import { canPromote, isRunning } from './document'
 import { DocumentResult } from './document-result'
 import { useDocument } from './use-document'
 import { type RevisionView, type SaveState, editedCount, isLocked } from './revision'
@@ -196,7 +196,12 @@ function ApprovedView({
           전사 수정
         </Button>
 
-        <div className='ml-auto flex items-center gap-3'>
+        {/*
+          ⛔ 좁은 화면에서 `ml-auto`만 두면 남은 폭에 따라 그룹이 어중간하게
+             밀려 «전사 원문 / 전사 수정» 다음에 큰 빈칸이 생긴다.
+             폰에서는 **한 줄을 통째로** 쓰고, 넓어지면 오른쪽으로 붙는다.
+        */}
+        <div className='flex w-full flex-wrap items-center gap-3 sm:ml-auto sm:w-auto'>
           {/*
             진행 표시는 **버튼 옆**에 둔다. 페이지 배지도 같은 말을 하지만,
             도는 동안에는 방금 누른 자리에서 반응이 보여야 한다.
@@ -212,6 +217,29 @@ function ApprovedView({
               {(doc.view.elapsedMs / 1000).toFixed(1)}초
             </span>
           )}
+          {/*
+            ⛔ **확정은 검수가 끝나야 눌린다.** 판정은 서버가 한다 —
+               화면이 따로 판단하면 버튼은 열려 있는데 409가 나거나,
+               확정할 수 있는데 잠긴다.
+          */}
+          {doc.view && doc.view.documentState !== 'current' && !running && (
+            <Button
+              size='sm'
+              disabled={!canPromote(doc.view)}
+              onClick={() => void doc.promote()}
+              data-testid='promote'
+            >
+              <CheckCheck className='size-4' aria-hidden />
+              문서 확정
+            </Button>
+          )}
+          {doc.view?.documentState === 'current' && (
+            <span className='text-state-success flex items-center gap-1.5 text-sm'>
+              <CheckCheck className='size-4' aria-hidden />
+              확정됨
+            </span>
+          )}
+
           {/* ⛔ 도는 동안에는 시작 버튼이 아예 없다. 두 번 돌리지 않는다 */}
           {!running && (
             <Button
@@ -227,6 +255,21 @@ function ApprovedView({
         </div>
       </div>
 
+      {/*
+        ⛔ **막기만 하지 않고 무엇이 막는지 보여준다.** 이유가 없으면 사용자는
+           네 결과를 전부 다시 훑어야 한다.
+      */}
+      {doc.view && (doc.view.blockers?.length ?? 0) > 0 && (
+        <ul
+          className='text-muted-foreground flex flex-col gap-1 text-sm'
+          data-testid='blockers'
+        >
+          {doc.view.blockers!.map((b, i) => (
+            <li key={`${b.section}-${i}`}>· {b.reason}</li>
+          ))}
+        </ul>
+      )}
+
       <DocumentResult
         view={doc.view}
         error={doc.error}
@@ -236,6 +279,7 @@ function ApprovedView({
         onPlay={onPlay}
         onOpenTranscript={onOpenTranscriptAt}
         onRetry={() => void doc.generate()}
+        onReview={(section, patch) => void doc.setReview(section, patch)}
       />
     </div>
   )

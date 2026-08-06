@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
+import type {
+  ReviewSection,
+  RubricVerdict,
+  SectionReviewState,
+} from '@ratatouille/contracts'
 import type { FetchLike } from '../processing/session'
 import { type DocumentView, isRunning } from './document'
 
@@ -39,9 +44,9 @@ export function useDocument(sourceId: string, deps: DocumentDeps = {}) {
   const pollMs = deps.pollMs ?? POLL_MS
 
   const request = useCallback(
-    async (init?: RequestInit): Promise<DocumentView> => {
+    async (init?: RequestInit, suffix = ''): Promise<DocumentView> => {
       const res = await (fetchFn ?? fetch)(
-        `/api/sources/${sourceId}/document`,
+        `/api/sources/${sourceId}/document${suffix}`,
         init
       )
       if (!res.ok) {
@@ -92,6 +97,57 @@ export function useDocument(sourceId: string, deps: DocumentDeps = {}) {
     return () => clearInterval(timer)
   }, [running, pollMs, load])
 
+  /**
+   * section 하나의 검수 상태를 바꾼다.
+   *
+   * ⛔ **run id를 함께 보낸다.** source id만 보내면 「지금 최신」에 적용되는데,
+   *    검수 도중에 다시 정리하면 엉뚱한 결과에 「확인함」이 붙는다.
+   */
+  const setReview = useCallback(
+    async (
+      section: ReviewSection,
+      patch: { state?: SectionReviewState; rubric?: Record<string, RubricVerdict> }
+    ) => {
+      const runId = view?.runId
+      if (!runId) return false
+      try {
+        setView(
+          await request({
+            method: 'PATCH',
+            body: JSON.stringify({ runId, section, ...patch }),
+            headers: { 'content-type': 'application/json' },
+          }, '/review')
+        )
+        setError(null)
+        return true
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+        return false
+      }
+    },
+    [request, view?.runId]
+  )
+
+  /** 검수를 마치고 확정한다. 서버가 규칙 7을 강제한다 */
+  const promote = useCallback(async () => {
+    const runId = view?.runId
+    if (!runId) return false
+    try {
+      setView(
+        await request({
+          method: 'POST',
+          body: JSON.stringify({ runId }),
+          headers: { 'content-type': 'application/json' },
+        }, '/current')
+      )
+      setError(null)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return false
+    }
+  }, [request, view?.runId])
+
   const generate = useCallback(async () => {
     /*
      * ⛔ **먼저 「도는 중」으로 바꾼 뒤에 보낸다.**
@@ -119,5 +175,5 @@ export function useDocument(sourceId: string, deps: DocumentDeps = {}) {
     }
   }, [request, load])
 
-  return { view, error, generate, reload: load }
+  return { view, error, generate, setReview, promote, reload: load }
 }

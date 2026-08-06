@@ -12,12 +12,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   REVIEW_SECTIONS,
+  RUBRIC,
   RuleViolationError,
   type SectionReview,
   assertCanPromoteToCurrent,
   blockersForCurrent,
   emptyReview,
   reviewAfterEdit,
+  withParticle,
 } from '../src/index.ts'
 
 const review = (over: Partial<Record<string, SectionReview>> = {}) => ({
@@ -167,6 +169,77 @@ describe('⛔ 루브릭 판정과 section 상태는 다른 namespace다', () => 
     r.summary = { state: 'unreviewed', rubric: { faithful: 'not_applicable' } }
     expect(r.summary.state).toBe('unreviewed')
     expect(() => assertCanPromoteToCurrent(r, { decisions: 1, tasks: 1 })).toThrow()
+  })
+})
+
+describe('⛔ 루브릭 기준은 계약 문서 그대로다', () => {
+  it('네 산출물 모두 기준을 갖는다', () => {
+    for (const s of REVIEW_SECTIONS) {
+      expect(RUBRIC[s].length).toBeGreaterThan(0)
+    }
+  })
+
+  it('🔴 결정 사항의 첫 기준이 결함 B를 잡는 그 질문이다', () => {
+    expect(RUBRIC.decisions[0]).toEqual({
+      id: 'decision-vs-proposal',
+      question: '실제 결정과 단순 제안·논의가 구분됐는가?',
+    })
+  })
+
+  it('⛔ 기준이 지나치게 많지 않다 — 행정 절차가 되면 아무도 안 본다', () => {
+    // 계약: "각 산출물은 핵심 기준 3~5개로 시작한다"
+    for (const s of REVIEW_SECTIONS) {
+      expect(RUBRIC[s].length).toBeGreaterThanOrEqual(3)
+      expect(RUBRIC[s].length).toBeLessThanOrEqual(5)
+    }
+  })
+
+  it('기준 id가 section 안에서 겹치지 않는다', () => {
+    for (const s of REVIEW_SECTIONS) {
+      const ids = RUBRIC[s].map((r) => r.id)
+      expect(new Set(ids).size).toBe(ids.length)
+    }
+  })
+})
+
+describe('⛔ 조사가 받침을 따라간다', () => {
+  // 「원문 근거을」이 실제로 나왔다. 한국어 UI에서 조사가 틀리면 기계가 쓴
+  // 티가 나고, 이 앱은 사람의 말을 다루는 도구라 특히 거슬린다.
+
+  it.each([
+    ['회의 요약', '을'],
+    ['결정 사항', '을'],
+    ['원문 근거', '를'],
+    ['Action Item', '을'],
+  ])('%s + %s', (word, expected) => {
+    expect(withParticle(word, '은/을', '는/를')).toBe(
+      word + (expected === '을' ? '은/을' : '는/를')
+    )
+  })
+
+  it('⛔ 막는 이유에 기준 id가 아니라 질문이 나온다', () => {
+    // `decision-vs-proposal`은 코드가 읽는 이름이다. 실제로 화면에 그렇게 떴다.
+    const r = emptyReview()
+    r.decisions = {
+      state: 'accepted',
+      rubric: { 'decision-vs-proposal': 'fix_required' },
+    }
+    const reasons = blockersForCurrent(r, { decisions: 1, tasks: 1 }).map(
+      (b) => b.reason
+    )
+    expect(reasons).toContain(
+      '결정 사항 — 수정 필요: 실제 결정과 단순 제안·논의가 구분됐는가?'
+    )
+    expect(reasons.join()).not.toContain('decision-vs-proposal')
+  })
+
+  it('막는 이유 문구에 실제로 적용된다', () => {
+    const reasons = blockersForCurrent(emptyReview(), {
+      decisions: 1,
+      tasks: 1,
+    }).map((b) => b.reason)
+    expect(reasons).toContain('원문 근거를 아직 확인하지 않았습니다.')
+    expect(reasons).toContain('회의 요약을 아직 확인하지 않았습니다.')
   })
 })
 

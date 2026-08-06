@@ -11,10 +11,14 @@
 
 import {
   type DocumentProposal,
+  type DocumentReview,
   type DocumentRunState,
+  type DocumentState,
   type EvidenceEntry,
   type Phrase,
+  type ReviewBlocker,
   describeState,
+  emptyReview,
 } from '@ratatouille/contracts'
 
 /** 서버 `GET/POST /api/sources/:id/document`의 응답 */
@@ -28,6 +32,11 @@ export type DocumentView = {
   violations: { kind: string; message: string }[]
   elapsedMs: number | null
   proposal: DocumentProposal | null
+  /** 사람의 검수 상태. 이 필드가 없던 판본의 결과일 수 있다 */
+  review?: DocumentReview
+  documentState?: DocumentState
+  /** 무엇이 확정을 막고 있나. 서버가 판정한다 */
+  blockers?: ReviewBlocker[]
 }
 
 export type SectionKey = 'summary' | 'decisions' | 'tasks' | 'evidence'
@@ -163,4 +172,22 @@ export function describeRunState(state: DocumentRunState): Phrase {
 export function isStale(view: DocumentView, currentRevisionId: string): boolean {
   if (!view.revisionId) return false
   return view.revisionId !== currentRevisionId
+}
+
+/**
+ * 확정할 수 있나.
+ *
+ * ⛔ **화면이 판정하지 않는다.** 서버가 준 `blockers`를 그대로 본다 —
+ *    같은 질문에 답이 둘이면 버튼은 열려 있는데 눌리면 409가 나거나,
+ *    반대로 확정할 수 있는데 버튼이 잠긴다.
+ */
+export function canPromote(view: DocumentView): boolean {
+  if (view.documentRunState !== 'proposed') return false
+  if (view.documentState === 'current') return false
+  return (view.blockers ?? []).length === 0
+}
+
+/** 이 판본에 검수 정보가 없으면 «아무도 안 봤다»로 읽는다 */
+export function reviewOf(view: DocumentView): DocumentReview {
+  return view.review ?? emptyReview()
 }

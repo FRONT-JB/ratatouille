@@ -182,7 +182,7 @@ function Shell({
   const phrase = source ? describeState(stageOf(source)) : null
 
   return (
-    <div className='mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 pt-3 pb-10 sm:px-10 sm:pb-16'>
+    <div className='mx-auto flex w-full max-w-5xl flex-col gap-8 px-4 pt-3 pb-10 sm:px-10 sm:pb-16'>
       {/*
         ⚠️ 위쪽 여백은 `pt-3`만 준다. 제목이 상단 바로 올라가면서 본문 첫 줄
            위의 큰 여백이 상단 바 높이와 겹쳐 빈 띠처럼 보였다.

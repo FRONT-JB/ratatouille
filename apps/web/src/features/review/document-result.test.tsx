@@ -93,7 +93,8 @@ const PROPOSED: DocumentView = {
 const setup = async (
   view: DocumentView | null = NONE,
   onSeek = vi.fn(),
-  onPlay = vi.fn()
+  onPlay = vi.fn(),
+  onReview = vi.fn()
 ) => {
   const screen = await render(
     <DocumentResult
@@ -105,9 +106,10 @@ const setup = async (
       onPlay={onPlay}
       onOpenTranscript={vi.fn()}
       onRetry={vi.fn()}
+      onReview={onReview}
     />
   )
-  return { screen, onSeek, onPlay }
+  return { screen, onSeek, onPlay, onReview }
 }
 
 describe('아직 만들지 않았을 때', () => {
@@ -231,6 +233,87 @@ describe('Action Item', () => {
   })
 })
 
+describe('⛔ 사람이 눌러야 확인된 것이다', () => {
+  it('네 결과에 각각 검수 줄이 있다', async () => {
+    const { screen } = await setup(PROPOSED)
+    for (const s of ['summary', 'decisions', 'tasks', 'evidence']) {
+      expect(screen.container.querySelector(`[data-review-section=${s}]`)).toBeTruthy()
+    }
+  })
+
+  it('처음에는 전부 「확인 전」이다 — 본 적 없는 것을 봤다고 하지 않는다', async () => {
+    const { screen } = await setup(PROPOSED)
+    const el = screen.container.querySelector('[data-review-section=summary]')!
+    expect(el.getAttribute('data-review-state')).toBe('unreviewed')
+    expect(el.textContent).toContain('확인 전')
+  })
+
+  it('「확인함」을 누르면 그 section만 바뀐다', async () => {
+    const { screen, onReview } = await setup(PROPOSED)
+    await screen.getByTestId('accept-decisions').click()
+
+    expect(onReview).toHaveBeenCalledWith('decisions', { state: 'accepted' })
+    expect(onReview).toHaveBeenCalledTimes(1)
+  })
+
+  it('⛔ 항목이 있으면 「회의에 없었음」을 고를 수 없다 — 건너뛰는 길을 만들지 않는다', async () => {
+    const { screen } = await setup(PROPOSED)
+    expect(screen.container.querySelector('[data-testid=empty-decisions]')).toBeNull()
+  })
+
+  it('실제로 없을 때만 「회의에 없었음」이 나온다', async () => {
+    const { screen } = await setup({
+      ...PROPOSED,
+      proposal: { ...PROPOSAL, decisions: [] },
+    })
+    expect(screen.container.querySelector('[data-testid=empty-decisions]')).toBeTruthy()
+  })
+
+  it('⛔ 확정된 문서에서는 검수를 흔들 수 없다', async () => {
+    const { screen } = await setup({ ...PROPOSED, documentState: 'current' })
+    expect(screen.container.querySelector('[data-testid=accept-summary]')).toBeNull()
+  })
+})
+
+describe('⛔ 루브릭은 AI의 자기 채점이 아니다', () => {
+  it('결정 사항 기준에 결함 B를 잡는 질문이 있다', async () => {
+    const { screen } = await setup(PROPOSED)
+    await screen.getByTestId('rubric-decisions').click()
+
+    await expect
+      .element(screen.getByText('실제 결정과 단순 제안·논의가 구분됐는가?'))
+      .toBeInTheDocument()
+  })
+
+  it('⛔ 사용자가 「수정 필요」로 뒤집을 수 있다', async () => {
+    const { screen, onReview } = await setup(PROPOSED)
+    await screen.getByTestId('rubric-decisions').click()
+    await screen.getByTestId('verdict-decision-vs-proposal-fix_required').click()
+
+    expect(onReview).toHaveBeenCalledWith('decisions', {
+      rubric: { 'decision-vs-proposal': 'fix_required' },
+    })
+  })
+
+  it('막고 있는 판정 수를 보여준다', async () => {
+    const { screen } = await setup({
+      ...PROPOSED,
+      review: {
+        summary: { state: 'accepted', rubric: {} },
+        decisions: {
+          state: 'accepted',
+          rubric: { 'decision-vs-proposal': 'fix_required' },
+        },
+        tasks: { state: 'accepted', rubric: {} },
+        evidence: { state: 'accepted', rubric: {} },
+      },
+    })
+    expect(
+      screen.container.querySelector('[data-review-section=decisions]')!.textContent
+    ).toContain('1건 남음')
+  })
+})
+
 describe('⛔ 결과가 없는 것은 오류가 아니다', () => {
   const empty: DocumentView = {
     ...PROPOSED,
@@ -338,6 +421,7 @@ describe('⛔ 모델 장애가 화면에 드러난다', () => {
         onPlay={vi.fn()}
         onOpenTranscript={vi.fn()}
         onRetry={onRetry}
+        onReview={vi.fn()}
       />
     )
     await screen.getByRole('button', { name: '다시 시도' }).click()

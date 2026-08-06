@@ -87,6 +87,25 @@ export function reviewAfterEdit(r: SectionReview): SectionReview {
   return { ...r, state: 'edited' }
 }
 
+/**
+ * 받침에 따라 갈리는 조사.
+ *
+ * ⛔ **문자열을 그냥 이어붙이지 않는다.** 「원문 근거을」이 실제로 나왔다.
+ *    한국어 UI에서 조사가 틀리면 기계가 쓴 티가 나고, 그건 이 앱이 사람의
+ *    말을 다루는 도구라 특히 거슬린다.
+ *
+ * 한글 음절은 유니코드에서 `가`(0xAC00)부터 28개 종성 주기로 늘어선다.
+ * 나머지가 0이면 받침이 없다.
+ */
+export function withParticle(word: string, withFinal: string, withoutFinal: string): string {
+  const last = word.trim().at(-1) ?? ''
+  const code = last.charCodeAt(0)
+  // 한글 음절이 아니면(영문·숫자) 받침이 있는 것으로 친다 — `Action Item을`
+  const isHangul = code >= 0xac00 && code <= 0xd7a3
+  const hasFinal = !isHangul || (code - 0xac00) % 28 !== 0
+  return `${word}${hasFinal ? withFinal : withoutFinal}`
+}
+
 /** 화면에 보이는 이름. 오류 문구가 사용자 말과 같아야 찾을 수 있다 */
 const LABEL: Record<ReviewSection, string> = {
   summary: '회의 요약',
@@ -108,6 +127,48 @@ const CAN_BE_EMPTY: Record<ReviewSection, boolean> = {
   decisions: true,
   tasks: true,
   evidence: false,
+}
+
+/**
+ * 산출물별 루브릭 기준 — `review-contract.md` 4절 원문.
+ *
+ * ⛔ **문구를 여기서 지어내지 않는다.** 계약 문서에 적힌 질문을 그대로 옮긴다.
+ *    바꿔 쓰면 "무엇을 확인했는가"가 회의마다 달라진다 — 루브릭이 있는 이유가
+ *    바로 그것을 막는 것이다.
+ *
+ * ⛔ **점수를 매기는 시험이 아니다.** 같은 질문으로 오류·불확실성과 근거를
+ *    확인하는 짧은 체크리스트다. 기준을 늘려 «클릭해야 하는 행정 절차»로
+ *    만들면 아무도 제대로 안 본다.
+ */
+export const RUBRIC: Record<
+  ReviewSection,
+  readonly { id: string; question: string }[]
+> = {
+  summary: [
+    { id: 'purpose-and-result', question: '핵심 목적과 결과가 빠지지 않았는가?' },
+    { id: 'no-invention', question: '전사문에 없는 사실이나 추측이 추가되지 않았는가?' },
+    { id: 'context-kept', question: '결정 사항·Action Item과 중요한 미해결 맥락이 반영됐는가?' },
+    { id: 'readable', question: '불필요한 반복 없이 다시 읽기 쉬운가?' },
+  ],
+  decisions: [
+    // 🔴 Phase 0 결함 B가 정확히 이 기준에 걸린 오류였다
+    { id: 'decision-vs-proposal', question: '실제 결정과 단순 제안·논의가 구분됐는가?' },
+    { id: 'what-and-state', question: '무엇을 결정했는지와 현재 상태가 명확한가?' },
+    { id: 'reason-in-source', question: '결정 이유·결정자와 근거가 원문 범위 안에 있는가?' },
+    { id: 'supersession', question: '이전 결정을 대체하거나 뒤집은 관계가 보존됐는가?' },
+  ],
+  tasks: [
+    { id: 'actionable', question: '실행 가능한 동사와 완료 조건으로 표현됐는가?' },
+    { id: 'owner-grounded', question: '담당자가 실제 발언 근거에 맞는가?' },
+    { id: 'due-only-if-said', question: '회의에서 기한을 말한 경우에만 정확히 반영됐는가?' },
+    { id: 'no-duplicates', question: '중복 작업이 없고 근거가 연결됐는가?' },
+    { id: 'no-invented-owner', question: '정보가 없는 담당자·기한을 AI가 만들지 않았는가?' },
+  ],
+  evidence: [
+    { id: 'supports-claim', question: '근거 segment가 실제로 그 주장을 뒷받침하는가?' },
+    { id: 'timestamp-accurate', question: 'timestamp가 해당 오디오 구간으로 정확히 이동하는가?' },
+    { id: 'no-outside-reading', question: '원문 밖의 해석을 근거처럼 표시하지 않았는가?' },
+  ],
 }
 
 export type ReviewBlocker = {
@@ -133,7 +194,10 @@ export function blockersForCurrent(
 
     if (r.state === 'empty') {
       if (!CAN_BE_EMPTY[section]) {
-        out.push({ section, reason: `${label}은 비어 있을 수 없습니다.` })
+        out.push({
+          section,
+          reason: `${withParticle(label, '은', '는')} 비어 있을 수 없습니다.`,
+        })
       } else if ((counts[section as 'decisions' | 'tasks'] ?? 0) > 0) {
         // ⛔ 항목이 있는데 「없음」으로 넘긴 것은 확인이 아니라 건너뛴 것이다.
         out.push({
@@ -142,7 +206,10 @@ export function blockersForCurrent(
         })
       }
     } else if (r.state !== 'accepted' && r.state !== 'edited') {
-      out.push({ section, reason: `${label}을 아직 확인하지 않았습니다.` })
+      out.push({
+        section,
+        reason: `${withParticle(label, '을', '를')} 아직 확인하지 않았습니다.`,
+      })
     }
 
     /*
@@ -150,11 +217,19 @@ export function blockersForCurrent(
      * 「수정 필요」가 남아 있으면 그건 아직 끝난 것이 아니다.
      */
     for (const [criterion, verdict] of Object.entries(r.rubric)) {
-      if (verdict === 'fix_required') {
-        out.push({ section, reason: `${label} — 수정 필요: ${criterion}` })
-      } else if (verdict === 'uncertain') {
-        out.push({ section, reason: `${label} — 확인 필요: ${criterion}` })
-      }
+      if (verdict !== 'fix_required' && verdict !== 'uncertain') continue
+      /*
+       * ⛔ 기준 **id**를 그대로 보여주지 않는다. `decision-vs-proposal`은
+       *    코드가 읽는 이름이지 사람이 읽는 말이 아니다 — 실제로 화면에
+       *    그렇게 나왔다. 질문을 찾지 못하면 그때만 id로 떨어진다.
+       */
+      const question = RUBRIC[section].find((c) => c.id === criterion)?.question
+      out.push({
+        section,
+        reason: `${label} — ${
+          verdict === 'fix_required' ? '수정 필요' : '확인 필요'
+        }: ${question ?? criterion}`,
+      })
     }
   }
 

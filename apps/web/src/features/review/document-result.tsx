@@ -1,5 +1,5 @@
 import { AlertTriangle, KeyRound, ListTree, Play } from 'lucide-react'
-import { UNSET_LABEL, splitCitations } from '@ratatouille/contracts'
+
 import { Button } from '@/components/ui/button'
 import {
   Popover,
@@ -10,6 +10,15 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  type DocumentReview,
+  type ReviewSection,
+  type RubricVerdict,
+  type SectionReviewState,
+  UNSET_LABEL,
+  splitCitations,
+} from '@ratatouille/contracts'
+import { SectionReviewControl } from './section-review'
+import {
   type Citation,
   type DocumentView,
   SECTIONS,
@@ -18,6 +27,7 @@ import {
   footnoteNumbers,
   isRunning,
   isStale,
+  reviewOf,
 } from './document'
 import type { RevisionSegmentView } from './revision'
 
@@ -45,6 +55,7 @@ export function DocumentResult({
   onPlay,
   onOpenTranscript,
   onRetry,
+  onReview,
 }: {
   view: DocumentView | null
   error: string | null
@@ -57,6 +68,10 @@ export function DocumentResult({
   /** 「전사에서 보기」 */
   onOpenTranscript: (ms: number) => void
   onRetry: () => void
+  onReview: (
+    section: ReviewSection,
+    patch: { state?: SectionReviewState; rubric?: Record<string, RubricVerdict> }
+  ) => void
 }) {
   if (error && !view) {
     return (
@@ -95,9 +110,12 @@ export function DocumentResult({
         <Sections
           proposal={view.proposal}
           segments={segments}
+          review={reviewOf(view)}
+          locked={view.documentState === 'current'}
           onSeek={onSeek}
           onPlay={onPlay}
           onOpenTranscript={onOpenTranscript}
+          onReview={onReview}
         />
       ) : running ? (
         // ⛔ 도는 동안 내용 자리를 비워두지 않는다. 멈춘 것처럼 보인다.
@@ -186,15 +204,24 @@ function FailureNotice({
 function Sections({
   proposal,
   segments,
+  review,
+  locked,
   onSeek,
   onPlay,
   onOpenTranscript,
+  onReview,
 }: {
   proposal: NonNullable<DocumentView['proposal']>
   segments: readonly RevisionSegmentView[]
+  review: DocumentReview
+  locked: boolean
   onSeek: (ms: number) => void
   onPlay: (ms: number) => void
   onOpenTranscript: (ms: number) => void
+  onReview: (
+    section: ReviewSection,
+    patch: { state?: SectionReviewState; rubric?: Record<string, RubricVerdict> }
+  ) => void
 }) {
   const numbers = footnoteNumbers(proposal.evidence)
   const notes = citationsOf(
@@ -204,6 +231,17 @@ function Sections({
   )
   const byId = new Map(notes.map((c) => [c.id, c]))
   const narrative = proposal.narrative ?? []
+
+  /** section 하나의 검수 줄. 네 곳이 같은 모양이어야 헷갈리지 않는다 */
+  const control = (section: ReviewSection, itemCount: number | null) => (
+    <SectionReviewControl
+      section={section}
+      review={review[section]}
+      itemCount={itemCount}
+      locked={locked}
+      onChange={(patch) => onReview(section, patch)}
+    />
+  )
 
   /** 본문 한 덩어리. 마커 자리에 각주 번호를 그린다. */
   const body = (text: string) => (
@@ -279,6 +317,12 @@ function Sections({
             {body(proposal.summary.text)}
           </p>
         </TabsContent>
+        {/*
+          ⛔ 회의 내용과 요약은 **한 검수 상태**를 나눠 갖는다. 같은 내용의
+             긴 형태와 짧은 형태라, 「요약은 맞는데 전문은 틀렸다」는 상태를
+             만들면 같은 것에 두 판정이 생긴다.
+        */}
+        <div className='mt-4'>{control('summary', null)}</div>
       </Tabs>
 
       <Section key='decisions' sectionKey='decisions'>
@@ -304,6 +348,7 @@ function Sections({
             ))}
           </ol>
         )}
+        {control('decisions', proposal.decisions.length)}
       </Section>
 
       <Section key='tasks' sectionKey='tasks'>
@@ -335,10 +380,14 @@ function Sections({
             ))}
           </ol>
         )}
+        {control('tasks', proposal.tasks.length)}
       </Section>
 
       {/* ⛔ 각주란은 탭 **밖**이다. 두 탭의 각주가 같은 번호를 가리킨다 */}
-      <Footnotes notes={notes} onPlay={onPlay} />
+      <div className='flex flex-col gap-3'>
+        <Footnotes notes={notes} onPlay={onPlay} />
+        {control('evidence', notes.length)}
+      </div>
     </div>
   )
 }
