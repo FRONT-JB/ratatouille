@@ -64,6 +64,22 @@ const WITH_DOCUMENT = {
   },
 }
 
+/** 확정된 결정. ⛔ 검수 화면의 「결정 사항」 section과 다른 자원이다 */
+const DECISIONS = [
+  {
+    decisionId: 'dec_1',
+    sourceId: 'src_01',
+    runId: 'doc_1',
+    what: '채용 기준을 미경험까지 넓힌다[seg_1].',
+    why: null,
+    who: null,
+    evidence: ['seg_1'],
+    decisionState: 'active',
+    decidedAt: '2026-08-06T10:00:00.000Z',
+    supersedes: null,
+  },
+]
+
 /** 서버 대역. PATCH는 보낸 텍스트를 반영해 돌려준다 — 실제 서버와 같게. */
 function server(initial = REVISION(), document: unknown = NO_DOCUMENT) {
   let state = initial
@@ -73,6 +89,16 @@ function server(initial = REVISION(), document: unknown = NO_DOCUMENT) {
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ url, method, body })
+
+    // 결정 이력은 확정본에서 파생된 **별도 entity**다(GOAL 6.10). 교정본을
+    // 돌려주면 화면이 빈 목록을 그리고, 무엇이 깨졌는지 알 수 없게 된다.
+    if (url.includes('/decisions')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ decisions: DECISIONS }),
+      } as unknown as Response
+    }
 
     // AI 정리는 별도 자원이다. 교정본 응답을 그대로 돌려주면 화면이 이상한
     // 상태를 그리고, 무엇이 깨졌는지 알 수 없게 된다.
@@ -460,6 +486,66 @@ describe('⛔ 확정 뒤에는 검수가 주 작업이다', () => {
   })
 })
 
+/**
+ * 결정 이력 — GOAL 6.10 「화면 연결」.
+ *
+ * ⛔ **검수의 「결정 사항」 section과 다른 것이다.** 저쪽은 *이번 실행이 뽑아낸
+ *    결정이 맞는가*를 묻고, 이력은 *확정된 결정이 아직 유효한가*를 본다.
+ *    이력을 결과 영역에 끼워 넣으면 검수 계약의 네 section이 다섯이 된다.
+ */
+describe('결정 이력', () => {
+  const approved = async (document: unknown = WITH_DOCUMENT) => {
+    const s = server(REVISION(), document)
+    const r = await setup(s)
+    await r.screen.getByTestId('approve-transcript').click()
+    await vi.waitFor(() =>
+      expect(r.screen.container.querySelector('[data-testid=ai-result]')).toBeTruthy()
+    )
+    return r
+  }
+
+  it('⋮ 안에 결정 이력이 있다 — 자주 보는 것은 아니지만 한 번에 닿는다', async () => {
+    const { screen } = await approved()
+    await screen.getByTestId('more-actions').click()
+
+    await expect
+      .element(screen.getByRole('menuitem', { name: '결정 이력' }))
+      .toBeInTheDocument()
+  })
+
+  it('열면 서랍으로 나온다', async () => {
+    const { screen } = await approved()
+    await screen.getByTestId('more-actions').click()
+    await screen.getByTestId('open-decisions').click()
+
+    await expect
+      .element(screen.getByRole('dialog', { name: '결정 이력' }))
+      .toBeInTheDocument()
+    await expect
+      .element(screen.getByText('채용 기준을 미경험까지 넓힌다.'))
+      .toBeInTheDocument()
+  })
+
+  it('⛔ 열기 전에는 결정을 조회하지 않는다', async () => {
+    // 열지도 않은 서랍이 요청을 보내면, 화면을 여는 것만으로 매번 쌓인다.
+    const { calls } = await approved()
+    expect(calls.filter((c) => c.url.includes('/decisions'))).toEqual([])
+  })
+
+  it('⛔ 검수 결과 안에 다섯 번째 덩어리로 들어가지 않는다', async () => {
+    const { screen } = await approved()
+    await screen.getByTestId('more-actions').click()
+    await screen.getByTestId('open-decisions').click()
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-testid=decision-history]')).toBeTruthy()
+    )
+
+    expect(
+      screen.container.querySelector('[data-testid=ai-result] [data-testid=decision-history]')
+    ).toBeNull()
+  })
+})
+
 describe('timestamp로 듣기', () => {
   it('timestamp가 버튼이다 — keyboard로 닿는다', async () => {
     const { screen } = await setup()
@@ -475,5 +561,114 @@ describe('timestamp로 듣기', () => {
     await screen.getByRole('button', { name: '00:00:02부터 듣기' }).click()
 
     expect(audio.currentTime).toBeCloseTo(2.12, 2)
+  })
+})
+
+/**
+ * 초안 요청의 **입구** — `degraded_draft`(규칙 5).
+ *
+ * ⛔ 이 describe가 지키는 것은 `document-result.tsx`의 표시가 아니라 **배선**이다.
+ *    「그래도 초안으로 보기」는 `onRequestDraft`가 내려올 때만 그려지므로
+ *    (죽은 버튼을 그리지 않으려고 그렇게 만들었다), 페이지가 그 prop을 빼먹으면
+ *    서버·계약·표시가 전부 살아 있는데 **사람이 들어갈 문만 없는 상태**가 된다.
+ *    그리고 그건 아무 테스트도 깨뜨리지 않은 채로 지나간다 — 실제로 그럴 뻔했다.
+ */
+describe('⛔ 초안을 요청할 입구가 화면에 있다 — 규칙 5', () => {
+  /** 근거 검증에 실패한 실행. 결과는 보존되지만 정상 산출물이 아니다 */
+  const FAILED = {
+    runId: 'doc_1',
+    documentRunState: 'failed_retryable',
+    revisionId: 'rev_src_01_1',
+    error: '근거 검증에 실패했습니다 (1건). 다시 시도해 주세요.',
+    violations: [{ kind: 'unknown_segment', message: '전사문에 없는 발언을 인용했습니다: seg_99' }],
+    elapsedMs: 1000,
+    degradedDraft: false,
+    documentState: 'reviewing',
+    blockers: [],
+    proposal: {
+      summary: { text: '미경험 엔지니어도 채용한다[seg_1].', evidence: ['seg_1'] },
+      decisions: [],
+      tasks: [],
+      evidence: [
+        { id: 'seg_1', timestamp: '00:00:02', quote: '아예 아무것도 모르는 사람도 채용을 해요.' },
+      ],
+    },
+  }
+
+  /** 초안을 요청하면 서버가 변수를 켠다. 켜는 곳은 여기 하나뿐이다 */
+  function draftServer() {
+    let doc: Record<string, unknown> = { ...FAILED }
+    const calls: { url: string; method: string; body?: unknown }[] = []
+    const ok = (v: unknown) =>
+      ({ ok: true, status: 200, json: async () => v }) as unknown as Response
+
+    const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined
+      calls.push({ url, method, body })
+
+      if (url.includes('/decisions')) return ok({ decisions: [] })
+      if (url.endsWith('/document/draft')) {
+        doc = { ...doc, degradedDraft: true }
+        return ok(doc)
+      }
+      if (url.includes('/document')) return ok(doc)
+      return ok(REVISION({ revisionState: 'transcript_approved', approvedAt: 'now' }))
+    })
+
+    return { fetchFn, calls }
+  }
+
+  const setupDraft = async () => {
+    const s = draftServer()
+    const screen = await render(
+      <ReviewPage sourceId='src_01' deps={{ fetch: s.fetchFn as never, saveDelayMs: 20 }} />
+    )
+    /*
+     * ⚠️ 기본 1초로는 파일 전체를 돌릴 때 모자란다. 이 화면은 교정본을 받고
+     *    확정 상태를 확인한 뒤에야 결과 영역을 마운트하므로 왕복이 한 번 더 있다.
+     */
+    await vi.waitFor(
+      () => expect(screen.container.querySelector('[data-testid=request-draft]')).toBeTruthy(),
+      { timeout: 5000 }
+    )
+    return { screen, ...s }
+  }
+
+  it('검증에 실패하면 초안을 권하는 버튼이 나온다', async () => {
+    const { screen } = await setupDraft()
+    expect(screen.container.textContent).toContain('그래도 초안으로 보기')
+  })
+
+  it('⛔ 무엇이 잘못됐는지가 초안 버튼과 함께 보인다 — 감추면 고칠 수 없다', async () => {
+    const { screen } = await setupDraft()
+    expect(screen.container.textContent).toContain('seg_99')
+  })
+
+  it('⛔ 누르면 사람이 승인했다는 표시와 함께 서버로 간다 — 자동 fallback이 아니다', async () => {
+    const { screen, calls } = await setupDraft()
+    await screen.getByTestId('request-draft').click()
+
+    await vi.waitFor(
+      () => {
+        const draft = calls.find((c) => c.url.endsWith('/document/draft'))
+        expect(draft?.method).toBe('POST')
+        expect((draft?.body as { acknowledged?: boolean })?.acknowledged).toBe(true)
+      },
+      { timeout: 5000 }
+    )
+  })
+
+  it('요청한 뒤에야 초안이 그려진다', async () => {
+    const { screen } = await setupDraft()
+    // 누르기 전에는 결과를 그리지 않는다 — 그게 규칙 5의 「명시적 요청」이다
+    expect(screen.container.querySelector('[data-testid=degraded-draft]')).toBeNull()
+
+    await screen.getByTestId('request-draft').click()
+
+    await vi.waitFor(
+      () => expect(screen.container.querySelector('[data-testid=degraded-draft]')).toBeTruthy(),
+      { timeout: 5000 }
+    )
   })
 })

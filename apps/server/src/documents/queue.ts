@@ -29,8 +29,10 @@ import {
   RuleViolationError,
   type RubricVerdict,
   type SectionReviewState,
+  assertCanCreateDegradedDraft,
   assertCanCreateDocumentRun,
   assertCanPromoteToCurrent,
+  assertNotDegradedDraft,
   blockersForCurrent,
   emptyReview,
   reviewAfterEdit,
@@ -93,6 +95,18 @@ export type DocumentRun = {
   verdictChanges: VerdictChange[]
   /** 몇 번째 확정인가. 확정 이력의 회차 번호가 된다 */
   promotions: number
+  /**
+   * 사람이 「그래도 초안으로 보겠다」고 말했나 — `degraded_draft`(규칙 5).
+   *
+   * ⛔ **상태가 아니라 별도 variant다.** `DocumentRunState`에 넣으면
+   *    `failed_retryable`을 덮어써서 **왜** 실패했는지가 사라진다. 초안은
+   *    실행이 어떻게 끝났느냐가 아니라 그 결과를 사람이 보기로 했느냐다.
+   *
+   * ⛔ **서버가 켜는 경로가 없다.** 켜는 곳은 `requestDegradedDraft` 하나뿐이고,
+   *    그건 사람의 명시적 요청에서만 불린다. 「세 번 실패하면 초안으로」 같은
+   *    완충 장치를 넣는 순간 규칙 5가 금지한 자동 fallback이 된다.
+   */
+  degradedDraft: boolean
 }
 
 export type EditRecord = {
@@ -145,6 +159,25 @@ function countsOf(run: DocumentRun): { decisions: number; tasks: number } {
     decisions: run.proposal?.decisions.length ?? 0,
     tasks: run.proposal?.tasks.length ?? 0,
   }
+}
+
+/**
+ * 초안은 검수·편집 대상이 아니다 — 규칙 5.
+ *
+ * ⛔ **확정할 수 없는 것을 확인하게 두지 않는다.** 초안에 「확인함」을 누를 수
+ *    있으면 사람은 네 section을 다 훑고 나서야 확정이 막힌 것을 알게 된다.
+ *    루브릭이 「클릭해야 하는 행정 절차」가 되는 가장 빠른 길이다.
+ *
+ * ⛔ **고쳐서 통과시키는 길도 막는다.** 지어낸 인용을 사람이 지우면 검증은
+ *    통과하겠지만, 그러면 「이 실행은 근거 검증을 통과했다」는 기록이 사후
+ *    편집으로 만들어진다. 정직한 길은 다시 정리하는 것이다.
+ */
+function assertDraftIsNotReviewable(run: DocumentRun): void {
+  if (!run.degradedDraft) return
+  throw new RuleViolationError(
+    'degraded-draft-is-not-reviewable',
+    '초안은 검수하거나 고칠 수 없습니다. 다시 정리한 뒤에 검수해 주세요.'
+  )
 }
 
 export type DocumentQueueDeps = {
@@ -252,6 +285,13 @@ export class DocumentQueue {
         run.edits ??= []
         run.verdictChanges ??= []
         run.promotions ??= run.documentState === 'current' ? 1 : 0
+        /*
+         * ⛔ **없던 판본은 초안이 아니다.** 초안은 사람이 요청해야만 켜지므로,
+         *    기록이 없으면 요청이 없었던 것이다. `undefined`를 그대로 두면
+         *    화면의 `!== true` 검사에 걸려 조용히 초안 아님으로 읽히긴 하지만,
+         *    「모른다」와 「아니다」를 디스크에서 갈라 두는 편이 낫다.
+         */
+        run.degradedDraft ??= false
         // ⛔ 재기동 시점에 `documenting`이던 것은 실제로는 죽어 있다.
         //    그대로 두면 화면이 영원히 "정리 중"을 보여준다.
         if (run.state === 'documenting' || run.state === 'queued') {
@@ -299,6 +339,7 @@ export class DocumentQueue {
         '이미 확정된 문서입니다. 되돌린 뒤에 다시 검수해 주세요.'
       )
     }
+    assertDraftIsNotReviewable(run)
     const cur = run.review[section]
     /*
      * ⛔ 판정이 **바뀐 것만** 남긴다. 같은 값을 다시 눌러도 이력이 쌓이면,
@@ -354,6 +395,7 @@ export class DocumentQueue {
         '이미 확정된 문서입니다. 되돌린 뒤에 고쳐 주세요.'
       )
     }
+    assertDraftIsNotReviewable(run)
 
     const rev = this.deps.revisions.current(run.sourceId)
     const segments: TranscriptSegment[] = (rev?.segments ?? []).map((s) => ({
@@ -396,6 +438,52 @@ export class DocumentQueue {
     return run
   }
 
+  /**
+   * 사람이 「그래도 초안으로 보겠다」고 말한다 — `degraded_draft`(규칙 5).
+   *
+   * ⛔ **이 메서드를 서버 내부에서 부르지 않는다.** 부르는 곳은
+   *    `POST /api/sources/:id/document/draft` 하나뿐이고, 그건 사람이 화면에서
+   *    누른 것이다. 실행 경로(`execute`)나 재시도에서 부르면 그 순간 규칙 5가
+   *    금지한 자동 fallback이 된다 — 규칙이 코드에 남아 있어도 무력해진다.
+   *
+   * ⛔ **`userRequested`를 서버가 지어내지 않는다.** 호출자가 명시한 값을
+   *    계약에 그대로 넘긴다. `true`를 상수로 박아두면 규칙 5의 검사가
+   *    장식이 되고, 어느 경로가 초안을 켰는지 추적할 수 없다.
+   */
+  async requestDegradedDraft(
+    runId: string,
+    userRequested: boolean
+  ): Promise<DocumentRun> {
+    const run = this.runs.get(runId)
+    if (!run) throw new DocumentRunNotFoundError(runId)
+    assertCanCreateDegradedDraft(userRequested)
+
+    if (!run.proposal) {
+      /*
+       * ⛔ 없는 것을 초안이라 부르지 않는다. 인증 만료·파싱 실패는 결과가
+       *    아예 없으므로 보여줄 초안도 없다 — 그때 필요한 것은 재인증·재시도다.
+       */
+      throw new RuleViolationError(
+        'degraded-draft-requires-result',
+        '아직 정리 결과가 없어 초안으로 볼 것이 없습니다.'
+      )
+    }
+    if (run.state === 'proposed') {
+      /*
+       * ⛔ 검증을 통과한 결과를 초안이라 부르면 거짓말이고, 더 나쁘게는
+       *    확정할 수 있는 결과를 확정할 수 없게 만든다.
+       */
+      throw new RuleViolationError(
+        'degraded-draft-requires-unverified-result',
+        '이 결과는 근거 검증을 통과했습니다. 초안이 아니라 정식 결과입니다.'
+      )
+    }
+
+    run.degradedDraft = true
+    await this.persist(run)
+    return run
+  }
+
   /** 무엇이 확정을 막고 있나 */
   blockers(runId: string): ReviewBlocker[] {
     const run = this.runs.get(runId)
@@ -412,6 +500,12 @@ export class DocumentQueue {
   async promote(runId: string): Promise<DocumentRun> {
     const run = this.runs.get(runId)
     if (!run) throw new DocumentRunNotFoundError(runId)
+    /*
+     * ⛔ **초안 검사가 상태 검사보다 먼저다**(규칙 5). 순서를 바꾸면
+     *    「'failed_retryable' 상태입니다」로 거절되어, 사용자는 왜 막혔는지
+     *    — 다시 시도하면 되는 것인지, 애초에 확정할 수 없는 것인지 — 모른다.
+     */
+    assertNotDegradedDraft(run.degradedDraft)
     if (run.state !== 'proposed') {
       throw new RuleViolationError(
         'document-requires-proposed-run',
@@ -637,6 +731,8 @@ export class DocumentQueue {
       edits: [],
       verdictChanges: [],
       promotions: 0,
+      // ⛔ 새 실행은 초안이 아니다. 초안은 사람이 요청해서만 켜진다(규칙 5)
+      degradedDraft: false,
     }
     this.runs.set(run.id, run)
     await this.persist(run)

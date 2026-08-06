@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   ChevronRight,
+  FileWarning,
   KeyRound,
   ListTree,
   Play,
@@ -58,6 +59,11 @@ import type { RevisionSegmentView } from './revision'
  *
  * ⛔ **상태말도 조작 버튼도 여기 없다.** 부모(`ApprovedView`)가 한 줄에 모아
  *    갖는다. 여기서 또 그리면 같은 말이 화면에 두 번 나온다.
+ *
+ * ⛔ **근거 검증에 실패한 결과를 그냥 그리지 않는다**(규칙 5). 예전에는
+ *    `view.proposal`만 있으면 그렸다 — 그래서 없는 발언을 인용한 결과가 정상
+ *    산출물과 **똑같이** 보였고, 사람이 요청하지도 않았는데 보였다. 그것이
+ *    규칙 5가 금지한 자동 fallback이다.
  */
 export function DocumentResult({
   view,
@@ -70,6 +76,7 @@ export function DocumentResult({
   onRetry,
   onReview,
   onEdit,
+  onRequestDraft,
 }: {
   view: DocumentView | null
   error: string | null
@@ -87,6 +94,13 @@ export function DocumentResult({
     patch: { state?: SectionReviewState; rubric?: Record<string, RubricVerdict> }
   ) => void
   onEdit: (edit: ProposalEdit) => void
+  /**
+   * 「그래도 초안으로 보기」 — `degraded_draft`(규칙 5).
+   *
+   * ⛔ **없으면 권하지 않는다.** 부모가 이 조작을 내려주지 않았다면 초안을 만들
+   *    길이 없는 것이므로, 눌러도 아무 일도 안 하는 버튼을 그리지 않는다.
+   */
+  onRequestDraft?: () => void
 }) {
   if (error && !view) {
     return (
@@ -100,6 +114,35 @@ export function DocumentResult({
 
   const state = view.documentRunState
   const running = isRunning(state)
+  /*
+   * ⛔ **초안 여부는 서버가 준 사실이다.** 여기서 「실패했는데 결과가 있으니
+   *    초안이겠지」로 추론하면 그게 자동 fallback이다(규칙 5).
+   */
+  const draft = view.degradedDraft === true
+  /*
+   * 결과를 그려도 되는 경우는 둘뿐이다: 근거 검증을 통과했거나(`proposed`),
+   * 통과하지 못한 것을 알고도 사람이 초안으로 보겠다고 한 경우.
+   */
+  const shows = view.proposal !== null && (state === 'proposed' || draft)
+
+  const sections = view.proposal && (
+    <Sections
+      proposal={view.proposal}
+      segments={segments}
+      review={reviewOf(view)}
+      /*
+       * ⛔ **초안은 잠긴다.** 검수해도 확정되지 않고(서버가 막는다),
+       *    고쳐서 통과시키는 길을 열면 「검증을 통과했다」는 기록이 사후
+       *    편집으로 만들어진다. 잠긴 화면이 그 사실을 먼저 말해준다.
+       */
+      locked={view.documentState === 'current' || draft}
+      onSeek={onSeek}
+      onPlay={onPlay}
+      onOpenTranscript={onOpenTranscript}
+      onReview={onReview}
+      onEdit={onEdit}
+    />
+  )
 
   return (
     <div className='flex flex-col gap-8' data-testid='ai-result'>
@@ -117,22 +160,27 @@ export function DocumentResult({
       )}
 
       {state === 'auth_required' && <ReauthNotice onRetry={onRetry} />}
-      {state === 'failed_retryable' && (
-        <FailureNotice view={view} onRetry={onRetry} />
+      {/*
+        ⛔ 실패 안내와 초안 액자를 **같이 쌓지 않는다.** 초안을 보고 있다면
+           실패 이유·위반 목록은 액자가 이미 갖고 있다 — 두 곳에 두면 같은 말이
+           화면에 두 번 나오고, 어느 쪽이 지금 상태인지 흐려진다.
+      */}
+      {state === 'failed_retryable' && !draft && (
+        <FailureNotice
+          view={view}
+          onRetry={onRetry}
+          onRequestDraft={onRequestDraft}
+        />
       )}
 
-      {view.proposal ? (
-        <Sections
-          proposal={view.proposal}
-          segments={segments}
-          review={reviewOf(view)}
-          locked={view.documentState === 'current'}
-          onSeek={onSeek}
-          onPlay={onPlay}
-          onOpenTranscript={onOpenTranscript}
-          onReview={onReview}
-          onEdit={onEdit}
-        />
+      {shows ? (
+        draft ? (
+          <DegradedDraft view={view} onRetry={onRetry}>
+            {sections}
+          </DegradedDraft>
+        ) : (
+          sections
+        )
       ) : running ? (
         // ⛔ 도는 동안 내용 자리를 비워두지 않는다. 멈춘 것처럼 보인다.
         <ResultSkeleton />
@@ -189,10 +237,19 @@ function ReauthNotice({ onRetry }: { onRetry: () => void }) {
 function FailureNotice({
   view,
   onRetry,
+  onRequestDraft,
 }: {
   view: DocumentView
   onRetry: () => void
+  onRequestDraft?: () => void
 }) {
+  /*
+   * ⛔ **보여줄 것이 있을 때만 초안을 권한다.** 인증 만료·파싱 실패는 결과가
+   *    아예 없어서 초안이 빈 화면이 된다. 서버도 거절하지만, 누를 수 있게
+   *    그려놓고 409를 내는 것은 나쁘다.
+   */
+  const canDraft = onRequestDraft && view.proposal !== null
+
   return (
     <section
       className='border-state-danger flex flex-col items-start gap-2 rounded-lg border p-4 text-sm'
@@ -210,9 +267,114 @@ function FailureNotice({
           ))}
         </ul>
       )}
-      <Button size='sm' variant='outline' onClick={onRetry}>
-        다시 시도
-      </Button>
+      {/*
+        ⛔ **초안은 부차 조작이다.** 「다시 시도」와 나란히 같은 무게로 두면
+           검증을 통과하지 못한 글을 보는 것이 정상 경로처럼 읽힌다.
+           주 조작은 다시 정리하는 것이다.
+      */}
+      <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
+        <Button size='sm' variant='outline' onClick={onRetry}>
+          다시 시도
+        </Button>
+        {canDraft && (
+          <Button
+            size='sm'
+            variant='ghost'
+            className='text-muted-foreground'
+            onClick={onRequestDraft}
+            data-testid='request-draft'
+          >
+            그래도 초안으로 보기
+          </Button>
+        )}
+      </div>
+      {/*
+        ⛔ **누르기 전에 무엇을 받는지 말한다**(규칙 5). 「초안으로 보기」만
+           있으면 사람은 그것이 조금 덜 좋은 결과인 줄 안다 — 확정도 저장도
+           되지 않는 읽기용 글이다.
+      */}
+      {canDraft && (
+        <p className='text-muted-foreground text-xs'>
+          초안은 검수·확정할 수 없고 회의록으로 저장되지 않습니다. 근거를 확인하며
+          읽어볼 때만 씁니다.
+        </p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * 초안 액자 — `degraded_draft`(규칙 5, Test 6.4).
+ *
+ * ⛔ **위쪽 배너 한 줄로 두지 않는다.** 결과가 길면 배너는 스크롤 밖으로 나가고,
+ *    그 뒤로는 정상 산출물과 구별할 수 없는 글만 남는다. 그래서 결과를 **통째로
+ *    감싼다** — 점선 테두리와 가라앉은 바닥이 어느 위치에서도 보인다.
+ *
+ * ⛔ **점선은 이 앱에서 이미 「아직 정식이 아님」을 뜻한다**(생성 전 안내 상자).
+ *    새 기호를 만들지 않고 그 말을 그대로 쓴다.
+ *
+ * ⚠️ 색으로만 구분하지 않는다. 색을 못 보는 사람에게도 「초안」이라는 말과
+ *    점선, 그리고 잠긴 검수 버튼이 남는다.
+ */
+function DegradedDraft({
+  view,
+  onRetry,
+  children,
+}: {
+  view: DocumentView
+  onRetry: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <section
+      data-testid='degraded-draft'
+      /* 스타일이 아니라 사실이다. 스냅샷·검사에서 이 값으로 구분한다 */
+      data-variant='degraded-draft'
+      aria-label='초안 — 근거 검증을 통과하지 못한 결과'
+      className='border-state-warning/70 bg-muted/50 flex flex-col gap-6 rounded-lg border border-dashed p-4 sm:p-6'
+    >
+      {/*
+        ⚠️ 좁을 때 오른쪽 조작이 **한 줄을 통째로** 쓰게 둔다. `ml-auto`만
+           두면 남은 폭에 따라 어중간하게 밀린다 — 실제로 그랬다.
+      */}
+      <header className='flex flex-wrap items-start justify-between gap-x-4 gap-y-3'>
+        <div className='flex flex-col gap-1'>
+          <span className='text-state-warning flex items-center gap-2 text-sm font-medium'>
+            <FileWarning className='size-4' aria-hidden />
+            초안
+          </span>
+          {/*
+            ⛔ 왜 초안인지와 무엇을 할 수 없는지를 **함께** 말한다. 이유만
+               말하면 사용자는 이걸 그대로 회의록으로 쓴다.
+          */}
+          <p className='text-muted-foreground text-sm'>
+            근거 검증을 통과하지 못한 결과입니다. 확정할 수 없고 회의록으로 저장되지
+            않습니다.
+          </p>
+        </div>
+        <Button
+          size='sm'
+          variant='outline'
+          className='w-full sm:w-auto'
+          onClick={onRetry}
+        >
+          다시 정리
+        </Button>
+      </header>
+
+      {/* ⛔ 무엇이 어긋났는지 없애지 않는다. 초안을 읽는 사람이 볼 것이 이것이다 */}
+      {view.violations.length > 0 && (
+        <ul
+          className='text-state-danger list-disc pl-5 text-sm'
+          data-testid='draft-violations'
+        >
+          {view.violations.map((v, i) => (
+            <li key={`${v.kind}-${i}`}>{v.message}</li>
+          ))}
+        </ul>
+      )}
+
+      {children}
     </section>
   )
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   RuleViolationError,
   assertCanCreateDegradedDraft,
+  assertNotDegradedDraft,
   assertCanCreateDocumentRun,
   assertCanCreateTranscriptionJob,
   assertCanOverwriteCurrent,
@@ -114,6 +115,20 @@ describe('규칙 5 — degraded_draft는 명시적 요청에만', () => {
     expect(() => assertCanCreateDegradedDraft(false)).toThrow(
       /자동 fallback이 아니다/
     )
+  })
+
+  /*
+   * 「명시적으로 요청했으면 만들 수 있다」의 뒷면. 만들 수 있다는 것과
+   * 확정할 수 있다는 것은 전혀 다른 말이고, 계약이 그 둘을 갈라놔야 한다 —
+   * 안 그러면 근거 검증을 통과하지 못한 초안이 vault의 정식 원본이 된다.
+   */
+  it('초안은 확정할 수 없다 — 만들 수 있다와 확정할 수 있다는 다른 말이다', () => {
+    expect(() => assertNotDegradedDraft(true)).toThrow(RuleViolationError)
+    expect(() => assertNotDegradedDraft(true)).toThrow(/초안/)
+  })
+
+  it('초안이 아니면 확정을 막지 않는다', () => {
+    expect(() => assertNotDegradedDraft(false)).not.toThrow()
   })
 })
 

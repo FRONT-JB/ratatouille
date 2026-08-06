@@ -557,6 +557,239 @@ describe('⛔ 모델 장애가 화면에 드러난다', () => {
   })
 })
 
+/**
+ * degraded_draft — 규칙 5, Test 6.4.
+ *
+ * ⛔ **자동 fallback이 아니다.** 근거 검증에 실패한 결과가 그냥 그려지고 있었다.
+ *    그게 곧 자동 fallback이고, 정상 산출물과 구분되지도 않았다.
+ *
+ * ⛔ **정상 산출물과 시각적으로 구분된다.** 확정할 수 없는 글이 확정할 수 있는
+ *    글과 똑같이 보이면, 사람은 그걸 회의록으로 알고 남에게 보낸다.
+ */
+describe('⛔ 초안은 사람이 요청해야 보인다 — 규칙 5', () => {
+  /** 없는 세그먼트를 인용해 검증에 실패했지만 내용은 남아 있는 결과 */
+  const unverified: DocumentView = {
+    ...PROPOSED,
+    documentRunState: 'failed_retryable',
+    error: '근거 검증에 실패했습니다 (1건). 다시 시도해 주세요.',
+    violations: [{ kind: 'unknown_segment', message: 'seg_999는 전사문에 없다' }],
+  }
+
+  it('⛔ 요청 전에는 결과를 그리지 않는다 — 이게 자동 fallback이었다', async () => {
+    const { screen } = await setup(unverified)
+    expect(screen.container.querySelector('[data-section=decisions]')).toBeNull()
+    expect(screen.container.querySelector('[data-testid=degraded-draft]')).toBeNull()
+    // 실패한 사실과 이유는 그대로 보인다
+    expect(screen.container.textContent).toContain('seg_999는 전사문에 없다')
+  })
+
+  /*
+   * ⛔ **결과를 감추는 것과 위반을 감추는 것은 다른 일이다.** 서버는 「검증에
+   *    실패한 결과도 버리지 않는다 — 못 보면 고칠 수 없다」는 이유로 위반을
+   *    보관한다. 초안을 감추면서 위반까지 같이 사라지면 그 보관이 무의미해지고,
+   *    사용자는 무엇이 잘못됐는지 알 방법이 없어진다.
+   */
+  it('⛔ 초안을 감춰도 위반 목록은 사라지지 않는다', async () => {
+    const { screen } = await setup(unverified)
+
+    expect(screen.container.querySelector('[data-section]')).toBeNull()
+    // 실패 이유와 위반이 둘 다 남는다
+    expect(screen.container.textContent).toContain('근거 검증에 실패했습니다')
+    expect(screen.container.textContent).toContain('seg_999는 전사문에 없다')
+    expect(screen.container.querySelector('[role=alert]')).toBeTruthy()
+  })
+
+  it('⛔ 초안을 요청한 뒤에도 위반 목록이 남는다 — 초안을 읽는 사람이 볼 것이 이것이다', async () => {
+    const { screen } = await setup({ ...unverified, degradedDraft: true })
+    const frame = screen.container.querySelector('[data-testid=degraded-draft]')!
+
+    expect(frame.querySelector('[data-testid=draft-violations]')!.textContent).toContain(
+      'seg_999는 전사문에 없다'
+    )
+  })
+
+  it('⛔ 위반이 화면에 두 번 나오지 않는다 — 어느 쪽이 지금 상태인지 흐려진다', async () => {
+    const { screen } = await setup({ ...unverified, degradedDraft: true })
+    const text = screen.container.textContent ?? ''
+    expect(text.split('seg_999는 전사문에 없다').length - 1).toBe(1)
+  })
+
+  it('「그래도 초안으로 보기」로 사람이 요청한다', async () => {
+    const onRequestDraft = vi.fn()
+    const screen = await render(
+      <DocumentResult
+        view={unverified}
+        error={null}
+        revisionId='rev_1'
+        segments={SEGMENTS}
+        onSeek={vi.fn()}
+        onPlay={vi.fn()}
+        onOpenTranscript={vi.fn()}
+        onRetry={vi.fn()}
+        onReview={vi.fn()}
+        onEdit={vi.fn()}
+        onRequestDraft={onRequestDraft}
+      />
+    )
+    await screen.getByTestId('request-draft').click()
+    expect(onRequestDraft).toHaveBeenCalledTimes(1)
+  })
+
+  it('⛔ 누르기 전에 무엇을 받게 되는지 말한다 — 확정할 수 없는 글이다', async () => {
+    const screen = await render(
+      <DocumentResult
+        view={unverified}
+        error={null}
+        revisionId='rev_1'
+        segments={SEGMENTS}
+        onSeek={vi.fn()}
+        onPlay={vi.fn()}
+        onOpenTranscript={vi.fn()}
+        onRetry={vi.fn()}
+        onReview={vi.fn()}
+        onEdit={vi.fn()}
+        onRequestDraft={vi.fn()}
+      />
+    )
+    expect(screen.container.textContent).toContain('확정할 수 없')
+  })
+
+  /*
+   * ⛔ **부모가 조작을 안 주면 권하지도 않는다.** 초안을 만들 길이 없는데
+   *    버튼을 그리면, 눌러도 아무 일이 없는 버튼이 된다 — 이 레포가 겪은
+   *    「테스트가 통과하는 죽은 코드」가 정확히 이 모양이다.
+   */
+  it('⛔ onRequestDraft가 없으면 초안 버튼을 그리지 않는다 — 죽은 버튼도, 비활성 버튼도 아니다', async () => {
+    // setup()은 onRequestDraft를 넘기지 않는다
+    const { screen } = await setup(unverified)
+
+    expect(screen.container.querySelector('[data-testid=request-draft]')).toBeNull()
+    // 비활성 버튼으로 남아 있지도 않다 — 「초안」이라는 조작 자체가 없다
+    const buttons = [...screen.container.querySelectorAll('button')]
+    expect(buttons.some((b) => (b.textContent ?? '').includes('초안'))).toBe(false)
+  })
+
+  it('⛔ 초안 버튼이 없어도 탈출로는 남는다 — 막다른 골목을 만들지 않는다', async () => {
+    const onRetry = vi.fn()
+    const screen = await render(
+      <DocumentResult
+        view={unverified}
+        error={null}
+        revisionId='rev_1'
+        segments={SEGMENTS}
+        onSeek={vi.fn()}
+        onPlay={vi.fn()}
+        onOpenTranscript={vi.fn()}
+        onRetry={onRetry}
+        onReview={vi.fn()}
+        onEdit={vi.fn()}
+      />
+    )
+    await screen.getByRole('button', { name: '다시 시도' }).click()
+    expect(onRetry).toHaveBeenCalled()
+  })
+
+  it('결과가 없으면 초안을 권하지 않는다 — 보여줄 것이 없다', async () => {
+    const screen = await render(
+      <DocumentResult
+        view={{ ...unverified, proposal: null }}
+        error={null}
+        revisionId='rev_1'
+        segments={SEGMENTS}
+        onSeek={vi.fn()}
+        onPlay={vi.fn()}
+        onOpenTranscript={vi.fn()}
+        onRetry={vi.fn()}
+        onReview={vi.fn()}
+        onEdit={vi.fn()}
+        onRequestDraft={vi.fn()}
+      />
+    )
+    expect(screen.container.querySelector('[data-testid=request-draft]')).toBeNull()
+  })
+})
+
+describe('⛔ 초안은 정상 산출물과 시각적으로 구분된다', () => {
+  const draft: DocumentView = {
+    ...PROPOSED,
+    documentRunState: 'failed_retryable',
+    degradedDraft: true,
+    error: '근거 검증에 실패했습니다 (1건). 다시 시도해 주세요.',
+    violations: [{ kind: 'unknown_segment', message: 'seg_999는 전사문에 없다' }],
+  }
+
+  it('요청했으면 내용이 보인다 — 읽으려고 요청한 것이다', async () => {
+    const { screen } = await setup(draft)
+    expect(screen.container.querySelector('[data-section=decisions]')).toBeTruthy()
+    expect(screen.container.textContent).toContain('오픈을 3월 16일로 연기하기로 했다')
+  })
+
+  it('초안이라고 말하고, 정상 결과에는 그 표시가 없다', async () => {
+    const { screen } = await setup(draft)
+    const frame = screen.container.querySelector('[data-testid=degraded-draft]')!
+    expect(frame).toBeTruthy()
+    expect(frame.textContent).toContain('초안')
+
+    const normal = await setup(PROPOSED)
+    expect(
+      normal.screen.container.querySelector('[data-testid=degraded-draft]')
+    ).toBeNull()
+  })
+
+  it('⛔ 결과 자체가 초안 액자 안에 들어간다 — 위쪽 배너 한 줄로는 스크롤하면 사라진다', async () => {
+    const { screen } = await setup(draft)
+    const frame = screen.container.querySelector('[data-testid=degraded-draft]')!
+    expect(frame.querySelector('[data-section=decisions]')).toBeTruthy()
+    expect(frame.querySelector('[data-section=tasks]')).toBeTruthy()
+  })
+
+  it('⛔ 확정할 수 없다는 말이 결과와 같은 자리에 있다', async () => {
+    const { screen } = await setup(draft)
+    const frame = screen.container.querySelector('[data-testid=degraded-draft]')!
+    expect(frame.textContent).toContain('확정할 수 없')
+  })
+
+  it('⛔ 초안은 검수할 수 없다 — 확정 못 하는 것을 확인하게 두지 않는다', async () => {
+    const { screen } = await setup(draft)
+    expect(
+      screen.container
+        .querySelector('[data-testid=accept-summary]')!
+        .hasAttribute('disabled')
+    ).toBe(true)
+  })
+
+  it('⛔ 초안은 고칠 수 없다 — 고쳐서 통과시키는 길을 만들지 않는다', async () => {
+    const { screen } = await setup(draft)
+    expect(screen.container.querySelector('[aria-label="결정 1 고치기"]')).toBeNull()
+  })
+
+  it('초안에서도 근거로 음성에 닿는다 — 그러지 못하면 읽을 가치가 없다', async () => {
+    const { screen } = await setup(draft)
+    const section = screen.container.querySelector('[data-section=decisions]')!
+    expect(section.querySelectorAll('button[data-cite]').length).toBeGreaterThan(0)
+  })
+
+  it('초안에서 나가는 길이 있다 — 다시 정리하는 것이 정답이다', async () => {
+    const onRetry = vi.fn()
+    const screen = await render(
+      <DocumentResult
+        view={draft}
+        error={null}
+        revisionId='rev_1'
+        segments={SEGMENTS}
+        onSeek={vi.fn()}
+        onPlay={vi.fn()}
+        onOpenTranscript={vi.fn()}
+        onRetry={onRetry}
+        onReview={vi.fn()}
+        onEdit={vi.fn()}
+      />
+    )
+    await screen.getByRole('button', { name: '다시 정리' }).click()
+    expect(onRetry).toHaveBeenCalled()
+  })
+})
+
 describe('돌고 있을 때', () => {
   const running: DocumentView = {
     ...PROPOSED,

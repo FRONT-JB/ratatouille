@@ -125,12 +125,36 @@ export function assertImmutable<T>(
 /**
  * 규칙 5 — `degraded_draft`는 사용자가 **명시적으로 허용**한 별도 variant이며
  * `current`와 같은 상태로 표시하지 않는다.
+ *
+ * ⛔ **`DocumentRunState`에 넣지 않는다.** 초안은 실행이 어떻게 끝났는지가
+ *    아니라 「그 실패한 결과를 사람이 보기로 했나」다. 상태로 만들면
+ *    `failed_retryable`을 덮어써서 왜 실패했는지가 사라진다.
  */
 export function assertCanCreateDegradedDraft(userRequested: boolean): void {
   if (!userRequested) {
     throw new RuleViolationError(
       'degraded-draft-requires-explicit-request',
       'degraded_draft는 사용자가 명시적으로 요청했을 때만 만든다. 자동 fallback이 아니다'
+    )
+  }
+}
+
+/**
+ * 규칙 5의 나머지 절반 — 초안은 **확정되지 않는다.**
+ *
+ * ⛔ **근거 검증을 통과하지 못한 결과가 vault의 정식 원본이 되면 안 된다**(9절).
+ *    초안이 `current`가 될 수 있으면 이 앱이 막으려는 것 하나가 통째로 뚫린다:
+ *    없는 발언을 인용한 회의록이 「확정본」 이름을 달고 Markdown으로 남는다.
+ *
+ * ⛔ **초안을 고쳐서 확정하는 길도 두지 않았다.** 사람이 지어낸 인용을 지워
+ *    검증을 통과시킬 수는 있지만, 그러면 「이 결과는 검증을 통과했다」는 기록이
+ *    사후 편집으로 만들어진다. 다시 정리하는 것이 정직한 길이다.
+ */
+export function assertNotDegradedDraft(isDegradedDraft: boolean): void {
+  if (isDegradedDraft) {
+    throw new RuleViolationError(
+      'degraded-draft-cannot-be-current',
+      '근거 검증을 통과하지 못한 초안은 확정할 수 없습니다. 다시 정리한 뒤 확정해 주세요.'
     )
   }
 }

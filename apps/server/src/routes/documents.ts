@@ -46,6 +46,14 @@ function toDto(run: DocumentRun, blockers: ReviewBlocker[] = []) {
      */
     review: run.review,
     documentState: run.documentState,
+    /**
+     * 사람이 「그래도 초안으로 보겠다」고 말했나 — `degraded_draft`(규칙 5).
+     *
+     * ⛔ **화면이 이 값을 추론하지 않는다.** 「실패했는데 결과가 있으니 초안이겠지」로
+     *    화면이 판단하면 그것이 곧 자동 fallback이고, 사람이 요청하지 않은 초안이
+     *    정상 산출물처럼 그려진다 — 실제로 그렇게 되어 있었다.
+     */
+    degradedDraft: run.degradedDraft,
     /** 무엇이 확정을 막고 있나. 막기만 하고 이유를 안 주면 못 끝낸다 */
     blockers,
   }
@@ -143,6 +151,41 @@ export function documentRoutes(documents: DocumentQueue): Hono {
     try {
       const { runId, ...edit } = body
       const run = await documents.edit(runId, edit as ProposalEdit)
+      return c.json(toDto(run, documents.blockers(run.id)))
+    } catch (e) {
+      if (e instanceof DocumentRunNotFoundError) {
+        return c.json({ error: e.message }, 404)
+      }
+      if (e instanceof RuleViolationError) {
+        return c.json({ error: e.message, rule: e.rule }, 409)
+      }
+      throw e
+    }
+  })
+
+  /**
+   * 「그래도 초안으로 보겠다」 — `degraded_draft`(규칙 5).
+   *
+   * ⛔ **이 경로가 초안을 켜는 유일한 곳이다.** 실행 경로가 스스로 켜면
+   *    자동 fallback이고, 그건 규칙 5가 금지한 것이다.
+   *
+   * ⛔ **`acknowledged`를 요구한다.** POST가 왔다는 사실만으로 「사람이
+   *    요청했다」고 치면, 재시도 로직이나 잘못 짠 폴링이 초안을 조용히 켤 수
+   *    있다. 초안은 「근거 검증에 실패한 것을 알고도 보겠다」는 승인이므로
+   *    그 승인이 요청 본문에 있어야 한다.
+   */
+  app.post('/:id/document/draft', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as {
+      runId?: string
+      acknowledged?: boolean
+    } | null
+    if (!body?.runId) return c.json({ error: 'runId가 필요합니다.' }, 400)
+
+    try {
+      const run = await documents.requestDegradedDraft(
+        body.runId,
+        body.acknowledged === true
+      )
       return c.json(toDto(run, documents.blockers(run.id)))
     } catch (e) {
       if (e instanceof DocumentRunNotFoundError) {

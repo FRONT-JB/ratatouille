@@ -180,6 +180,37 @@ export function useDocument(sourceId: string, deps: DocumentDeps = {}) {
     }
   }, [request, view?.runId])
 
+  /**
+   * 「그래도 초안으로 보겠다」 — `degraded_draft`(규칙 5).
+   *
+   * ⛔ **사람이 누른 것만 여기 온다.** 실패했을 때 자동으로 부르면 그것이
+   *    규칙 5가 금지한 자동 fallback이다 — 폴링이나 재시도 경로에서 부르지 않는다.
+   *
+   * ⛔ **`acknowledged`를 함께 보낸다.** 서버가 이 승인을 요구한다. POST가 왔다는
+   *    사실만으로 「사람이 요청했다」고 치면 잘못 짠 재시도가 초안을 조용히 켤 수 있다.
+   */
+  const requestDegradedDraft = useCallback(async () => {
+    const runId = view?.runId
+    if (!runId) return false
+    try {
+      setView(
+        await request(
+          {
+            method: 'POST',
+            body: JSON.stringify({ runId, acknowledged: true }),
+            headers: { 'content-type': 'application/json' },
+          },
+          '/draft'
+        )
+      )
+      setError(null)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return false
+    }
+  }, [request, view?.runId])
+
   /** 확정을 되돌린다. 없으면 오타 하나에 모델을 다시 돌려야 한다 */
   const reopen = useCallback(async () => {
     const runId = view?.runId
@@ -238,6 +269,7 @@ export function useDocument(sourceId: string, deps: DocumentDeps = {}) {
     editContent,
     promote,
     reopen,
+    requestDegradedDraft,
     reload: load,
   }
 }

@@ -6,6 +6,7 @@ import {
   Lock,
   PanelRight,
   PenLine,
+  Scale,
   Sparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -24,6 +25,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
+import { DecisionHistorySheet } from '../decisions/decision-history'
 import type { FetchLike } from '../processing/session'
 import { useAudioController } from './audio-controller'
 import { AudioPlayer } from './audio-player'
@@ -198,6 +200,11 @@ function ApprovedView({
   deps?: { fetch?: FetchLike; pollMs?: number }
 }) {
   const doc = useDocument(sourceId, { fetch: deps?.fetch, pollMs: deps?.pollMs })
+  /*
+   * ⛔ **확인 창·서랍은 메뉴 밖에 산다.** 메뉴 안에 두면 항목을 누르는 순간
+   *    메뉴가 닫히면서 열려던 것까지 같이 사라진다.
+   */
+  const [decisionsOpen, setDecisionsOpen] = useState(false)
   const state = doc.view?.documentRunState ?? null
   const running = isRunning(state)
   const confirmed = doc.view?.documentState === 'current'
@@ -280,6 +287,20 @@ function ApprovedView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align='end'>
+              {/*
+                ⛔ **결정 이력은 검수 결과 안에 넣지 않는다.** 검수 계약의 네
+                   section은 고정이고, 이력은 검수하는 동안 읽는 것이 아니라
+                   「그때 뭘 정했더라」를 물을 때 여는 것이다. 읽기만 하는
+                   조작이라 다시 정리·전사 수정보다 위에 둔다.
+              */}
+              <DropdownMenuItem
+                onSelect={() => setDecisionsOpen(true)}
+                data-testid='open-decisions'
+              >
+                <Scale className='size-4' aria-hidden />
+                결정 이력
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={() => void doc.generate()}
                 disabled={running}
@@ -315,6 +336,19 @@ function ApprovedView({
         onRetry={() => void doc.generate()}
         onReview={(section, patch) => void doc.setReview(section, patch)}
         onEdit={(edit) => void doc.editContent(edit)}
+        /*
+          ⛔ **이 줄이 초안을 요청할 유일한 입구다**(규칙 5). 이것이 없으면
+             「그래도 초안으로 보기」 버튼 자체가 그려지지 않는다 — 서버·표시는
+             다 살아 있는데 사람이 들어갈 문만 없는 상태가 된다.
+        */
+        onRequestDraft={() => void doc.requestDegradedDraft()}
+      />
+
+      <DecisionHistorySheet
+        open={decisionsOpen}
+        onOpenChange={setDecisionsOpen}
+        sourceId={sourceId}
+        deps={{ fetch: deps?.fetch }}
       />
     </div>
   )

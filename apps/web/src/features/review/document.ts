@@ -37,6 +37,16 @@ export type DocumentView = {
   documentState?: DocumentState
   /** 무엇이 확정을 막고 있나. 서버가 판정한다 */
   blockers?: ReviewBlocker[]
+  /**
+   * 사람이 「그래도 초안으로 보겠다」고 말했나 — `degraded_draft`(규칙 5).
+   *
+   * ⛔ **화면이 이 값을 추론하지 않는다.** 「실패했는데 결과가 있으니 초안이겠지」로
+   *    화면이 판단하면 그게 곧 규칙 5가 금지한 자동 fallback이다 — 실제로
+   *    그렇게 되어 있었다(`view.proposal ? <Sections/>`). 서버가 준 사실만 본다.
+   *
+   * 이 필드가 없던 판본의 결과일 수 있으므로 `=== true`로만 읽는다.
+   */
+  degradedDraft?: boolean
 }
 
 export type SectionKey = 'summary' | 'decisions' | 'tasks' | 'evidence'
