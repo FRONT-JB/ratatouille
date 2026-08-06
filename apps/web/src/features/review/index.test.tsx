@@ -260,12 +260,16 @@ describe('⛔ 확정하면 잠긴다', () => {
     )
   })
 
-  it('재교정 버튼이 나온다 — 되돌릴 길이 있다', async () => {
+  it('재교정 길이 있다 — ⋮ 안이지만 한 번에 닿는다', async () => {
     const { screen } = await setup()
     await screen.getByTestId('approve-transcript').click()
+    await vi.waitFor(() =>
+      expect(screen.container.querySelector('[data-testid=more-actions]')).toBeTruthy()
+    )
+    await screen.getByTestId('more-actions').click()
 
     await expect
-      .element(screen.getByRole('button', { name: '전사 수정' }))
+      .element(screen.getByRole('menuitem', { name: '전사 수정' }))
       .toBeInTheDocument()
   })
 
@@ -303,22 +307,32 @@ describe('⛔ AI 정리 조작은 한 줄에 있다', () => {
     )
   })
 
-  it('시작 버튼이 조작 줄에 있다', async () => {
+  it('⛔ 주 조작은 하나다 — 나머지는 ⋮ 안에 있다', async () => {
+    // 넷을 나란히 두면 이 화면이 무엇을 하는 곳인지 사라진다.
     const { screen } = await approvedWith(NO_DOCUMENT)
+    expect(screen.container.querySelector('[data-testid=generate]')).toBeNull()
+    await expect.element(screen.getByTestId('more-actions')).toBeInTheDocument()
+  })
+
+  it('⋮를 열면 시작 항목이 있다', async () => {
+    const { screen } = await approvedWith(NO_DOCUMENT)
+    await screen.getByTestId('more-actions').click()
     await expect
-      .element(screen.getByRole('button', { name: 'AI 정리 시작' }))
+      .element(screen.getByRole('menuitem', { name: 'AI 정리 시작' }))
       .toBeInTheDocument()
   })
 
   it('결과가 있으면 「다시 정리」다', async () => {
     const { screen } = await approvedWith(WITH_DOCUMENT)
+    await screen.getByTestId('more-actions').click()
     await expect
-      .element(screen.getByRole('button', { name: '다시 정리' }))
+      .element(screen.getByRole('menuitem', { name: '다시 정리' }))
       .toBeInTheDocument()
   })
 
   it('누르면 만든다', async () => {
     const { screen, calls } = await approvedWith(NO_DOCUMENT)
+    await screen.getByTestId('more-actions').click()
     await screen.getByTestId('generate').click()
 
     await vi.waitFor(() =>
@@ -328,13 +342,16 @@ describe('⛔ AI 정리 조작은 한 줄에 있다', () => {
     )
   })
 
-  it('⛔ 도는 동안에는 시작 버튼이 없다 — 같은 회의를 두 번 돌리지 않는다', async () => {
+  it('⛔ 도는 동안에는 시작할 수 없다 — 같은 회의를 두 번 돌리지 않는다', async () => {
     const { screen } = await approvedWith({
       ...WITH_DOCUMENT,
       documentRunState: 'documenting',
       proposal: null,
     })
-    expect(screen.container.querySelector('[data-testid=generate]')).toBeNull()
+    await screen.getByTestId('more-actions').click()
+    expect(
+      document.querySelector('[data-testid=generate]')!.getAttribute('aria-disabled')
+    ).toBe('true')
   })
 
   it('도는 동안에는 도는 중이라고 말한다', async () => {
@@ -388,12 +405,14 @@ describe('⛔ 확정 뒤에는 검수가 주 작업이다', () => {
     )
   })
 
-  it('⛔ 되돌릴 길은 서랍 안에 숨기지 않는다', async () => {
-    // 「전사 수정」을 찾으려고 먼저 다른 것을 열어야 하면 못 찾는다.
+  it('⛔ 되돌릴 길을 전사 서랍 안에 숨기지 않는다', async () => {
+    // ⋮는 늘 보이는 자리다. 전사 서랍은 먼저 열어야 하므로 다르다.
     const { screen } = await approved()
+    await screen.getByTestId('more-actions').click()
     await expect
-      .element(screen.getByRole('button', { name: '전사 수정' }))
+      .element(screen.getByRole('menuitem', { name: '전사 수정' }))
       .toBeInTheDocument()
+    expect(document.querySelector('[data-testid=transcript-drawer]')).toBeNull()
   })
 
   it('⛔ 각주를 눌러도 전사가 튀어나오지 않는다', async () => {

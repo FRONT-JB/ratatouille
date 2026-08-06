@@ -1,6 +1,17 @@
-import { AlertTriangle, KeyRound, ListTree, Play } from 'lucide-react'
+import {
+  AlertTriangle,
+  ChevronRight,
+  KeyRound,
+  ListTree,
+  Play,
+} from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import {
   Popover,
   PopoverContent,
@@ -284,14 +295,21 @@ function Sections({
         defaultValue={narrative.length > 0 ? 'narrative' : 'summary'}
         className='gap-4'
       >
-        <TabsList>
-          <TabsTrigger value='narrative' data-testid='tab-narrative'>
-            회의 내용
-          </TabsTrigger>
-          <TabsTrigger value='summary' data-testid='tab-summary'>
-            요약
-          </TabsTrigger>
-        </TabsList>
+        {/*
+          ⛔ 검수 조작이 탭 **줄에** 붙는다. 회의 내용과 요약은 한 검수 상태를
+             나눠 가지므로, 그 조작의 자리는 두 탭을 아우르는 이 줄이다.
+        */}
+        <div className='flex flex-wrap items-center justify-between gap-2'>
+          <TabsList>
+            <TabsTrigger value='narrative' data-testid='tab-narrative'>
+              회의 내용
+            </TabsTrigger>
+            <TabsTrigger value='summary' data-testid='tab-summary'>
+              요약
+            </TabsTrigger>
+          </TabsList>
+          {control('summary', null)}
+        </div>
 
         <TabsContent value='narrative' data-section='narrative'>
           {narrative.length === 0 ? (
@@ -345,15 +363,13 @@ function Sections({
             </p>
           </Editable>
         </TabsContent>
-        {/*
-          ⛔ 회의 내용과 요약은 **한 검수 상태**를 나눠 갖는다. 같은 내용의
-             긴 형태와 짧은 형태라, 「요약은 맞는데 전문은 틀렸다」는 상태를
-             만들면 같은 것에 두 판정이 생긴다.
-        */}
-        <div className='mt-4'>{control('summary', null)}</div>
       </Tabs>
 
-      <Section key='decisions' sectionKey='decisions'>
+      <Section
+        key='decisions'
+        sectionKey='decisions'
+        action={control('decisions', proposal.decisions.length)}
+      >
         {proposal.decisions.length === 0 ? (
           <Empty what='결정된 사항' />
         ) : (
@@ -392,10 +408,13 @@ function Sections({
             ))}
           </ol>
         )}
-        {control('decisions', proposal.decisions.length)}
       </Section>
 
-      <Section key='tasks' sectionKey='tasks'>
+      <Section
+        key='tasks'
+        sectionKey='tasks'
+        action={control('tasks', proposal.tasks.length)}
+      >
         {proposal.tasks.length === 0 ? (
           <Empty what='할 일' />
         ) : (
@@ -439,14 +458,14 @@ function Sections({
             ))}
           </ol>
         )}
-        {control('tasks', proposal.tasks.length)}
       </Section>
 
       {/* ⛔ 각주란은 탭 **밖**이다. 두 탭의 각주가 같은 번호를 가리킨다 */}
-      <div className='flex flex-col gap-3'>
-        <Footnotes notes={notes} onPlay={onPlay} />
-        {control('evidence', notes.length)}
-      </div>
+      <Footnotes
+        notes={notes}
+        onPlay={onPlay}
+        action={control('evidence', notes.length)}
+      />
     </div>
   )
 }
@@ -633,60 +652,87 @@ function FootnoteMark({
 function Footnotes({
   notes,
   onPlay,
+  action,
 }: {
   notes: Citation[]
   /** 각주란에서는 목록을 훑는 중이므로 누르면 바로 듣는 편이 맞다 */
   onPlay: (ms: number) => void
+  action?: React.ReactNode
 }) {
   return (
-    <details className='border-border rounded-lg border' data-section='evidence'>
-      <summary className='cursor-pointer p-4 text-sm font-medium'>
-        {/* ⛔ `<summary>` 안에 heading을 둔다 — 접혀 있어도 목차에서 찾을 수 있다 */}
-        <h3 className='inline text-sm font-medium'>원문 근거</h3>
-        <span className='text-muted-foreground ml-2 font-normal'>
-          {notes.length}건
-        </span>
-      </summary>
-      <ol className='flex flex-col gap-1 px-4 pb-4'>
-        {notes.map((c, i) =>
-          c.resolved ? (
-            <li key={c.id} className='flex gap-2 text-sm'>
-              <span className='text-muted-foreground shrink-0 font-mono text-xs'>
-                [{i + 1}]
-              </span>
-              <button
-                type='button'
-                data-cite={c.id}
-                onClick={() => onPlay(c.startMs!)}
-                aria-label={`${c.timestamp}부터 듣기 — ${c.quote}`}
-                className='hover:text-primary text-left'
-              >
-                <span className='text-muted-foreground mr-2 font-mono text-xs'>
-                  {c.timestamp}
+    /*
+     * ⛔ 네이티브 `<details>`를 쓰지 않는다. `<summary>`는 `<details>`의 **첫
+     *    자식**이어야 하는데, 오른쪽에 검수 조작을 붙이려고 div로 감쌌더니
+     *    브라우저가 자기 기본 라벨(「세부정보」)을 그렸다. 규칙을 어긴 마크업은
+     *    조용히 이상하게 렌더된다.
+     */
+    <Collapsible
+      className='border-border rounded-lg border'
+      data-section='evidence'
+    >
+      <div className='flex flex-wrap items-center justify-between gap-2 p-4'>
+        <CollapsibleTrigger asChild>
+          <button
+            type='button'
+            className='flex items-center gap-1 text-sm font-medium'
+            data-testid='evidence-toggle'
+          >
+            <ChevronRight
+              className='size-4 transition-transform group-data-[state=open]/notes:rotate-90'
+              aria-hidden
+            />
+            <h3 className='text-sm font-medium'>원문 근거</h3>
+            <span className='text-muted-foreground ml-1 font-normal'>
+              {notes.length}건
+            </span>
+          </button>
+        </CollapsibleTrigger>
+        {action}
+      </div>
+      <CollapsibleContent>
+        <ol className='flex flex-col gap-1 px-4 pb-4'>
+          {notes.map((c, i) =>
+            c.resolved ? (
+              <li key={c.id} className='flex gap-2 text-sm'>
+                <span className='text-muted-foreground shrink-0 font-mono text-xs'>
+                  [{i + 1}]
                 </span>
-                {c.quote}
-              </button>
-            </li>
-          ) : (
-            <li
-              key={c.id}
-              className='text-state-danger font-mono text-xs'
-              data-cite-broken={c.id}
-            >
-              [{i + 1}] {c.id} — 전사문에서 찾을 수 없습니다
-            </li>
-          )
-        )}
-      </ol>
-    </details>
+                <button
+                  type='button'
+                  data-cite={c.id}
+                  onClick={() => onPlay(c.startMs!)}
+                  aria-label={`${c.timestamp}부터 듣기 — ${c.quote}`}
+                  className='hover:text-primary text-left'
+                >
+                  <span className='text-muted-foreground mr-2 font-mono text-xs'>
+                    {c.timestamp}
+                  </span>
+                  {c.quote}
+                </button>
+              </li>
+            ) : (
+              <li
+                key={c.id}
+                className='text-state-danger font-mono text-xs'
+                data-cite-broken={c.id}
+              >
+                [{i + 1}] {c.id} — 전사문에서 찾을 수 없습니다
+              </li>
+            )
+          )}
+        </ol>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
 function Section({
   sectionKey,
+  action,
   children,
 }: {
   sectionKey: 'decisions' | 'tasks'
+  action?: React.ReactNode
   children: React.ReactNode
 }) {
   const title = SECTIONS.find((s) => s.key === sectionKey)!.title
@@ -700,7 +746,7 @@ function Section({
         제목은 **라벨**이지 읽을 글이 아니다. 본문보다 작고 조용하게 둔다 —
         예전에는 제목이 본문과 같은 크기라 어느 쪽이 내용인지 알 수 없었다.
       */}
-      <SectionLabel>{title}</SectionLabel>
+      <SectionLabel action={action}>{title}</SectionLabel>
       {children}
     </section>
   )
@@ -715,11 +761,26 @@ function Section({
  *
  * 제목은 **라벨**이지 읽을 글이 아니다. 본문보다 작고 조용하게 둔다.
  */
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({
+  children,
+  action,
+}: {
+  children: React.ReactNode
+  /**
+   * 제목 줄 오른쪽에 붙는 조작.
+   *
+   * ⛔ **검수 버튼은 제목과 같은 줄에 있어야 한다.** 내용 아래에 홀로 두면
+   *    무엇을 확인하는 버튼인지 알 수 없다 — 실제로 그렇게 보였다.
+   */
+  action?: React.ReactNode
+}) {
   return (
-    <h3 className='text-muted-foreground text-sm font-medium tracking-wide'>
-      {children}
-    </h3>
+    <div className='flex flex-wrap items-center justify-between gap-2'>
+      <h3 className='text-muted-foreground text-sm font-medium tracking-wide'>
+        {children}
+      </h3>
+      {action}
+    </div>
   )
 }
 

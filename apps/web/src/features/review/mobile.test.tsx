@@ -134,13 +134,13 @@ describe('⛔ 조작 줄이 좁은 화면에서 어정쩡하게 갈라지지 않
     const screen = await render(
       <ReviewPage sourceId='src_01' deps={{ fetch: server() as never }} />
     )
-    await expect.element(screen.getByTestId('generate')).toBeInTheDocument()
+    await expect.element(screen.getByTestId('more-actions')).toBeInTheDocument()
 
     const toolbar = screen.container
       .querySelector('[data-testid=open-transcript]')!
       .closest('div')!
-    const group = screen.container.querySelector('[data-testid=generate]')!
-      .parentElement!
+    const group = screen.container.querySelector('[data-testid=more-actions]')!
+      .closest('div')!
     // 남은 폭에 밀려 어중간하게 뜨지 않고 왼쪽에서 시작한다
     expect(Math.round(group.getBoundingClientRect().left)).toBe(
       Math.round(toolbar.getBoundingClientRect().left)

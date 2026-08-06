@@ -186,6 +186,8 @@ describe('⛔ 각주는 그 문장에 붙어 있다', () => {
 
   it('⛔ 번호는 각주란과 같다 — 어긋나면 각주가 무의미하다', async () => {
     const { screen } = await setup(PROPOSED)
+    // 접혀 있으면 목록이 DOM에 없다 — 먼저 편다
+    await screen.getByTestId('evidence-toggle').click()
     const inline = screen.container.querySelector(
       '[data-section=narrative] button[data-cite=seg_1]'
     )!.textContent
@@ -205,16 +207,21 @@ describe('⛔ 각주는 그 문장에 붙어 있다', () => {
 
   it('⛔ 각주란은 기본으로 접혀 있다 — 90건이 펼쳐져 있으면 결과를 못 읽는다', async () => {
     const { screen } = await setup(PROPOSED)
-    const details = screen.container.querySelector('details[data-section=evidence]')!
-    expect((details as HTMLDetailsElement).open).toBe(false)
+    const box = screen.container.querySelector('[data-section=evidence]')!
+    expect(box.getAttribute('data-state')).toBe('closed')
   })
 
   it('몇 건인지는 접힌 채로도 보인다', async () => {
     const { screen } = await setup(PROPOSED)
-    const summary = screen.container.querySelector(
-      'details[data-section=evidence] > summary'
-    )!
-    expect(summary.textContent).toContain('2건')
+    expect(
+      screen.container.querySelector('[data-testid=evidence-toggle]')!.textContent
+    ).toContain('2건')
+  })
+
+  it('⛔ 브라우저 기본 라벨이 새어 나오지 않는다', async () => {
+    // `<details>` 규칙을 어기면 브라우저가 「세부정보」를 그린다. 조용해서 위험하다.
+    const { screen } = await setup(PROPOSED)
+    expect(screen.container.textContent).not.toContain('세부정보')
   })
 })
 
@@ -322,11 +329,31 @@ describe('⛔ 사람이 눌러야 확인된 것이다', () => {
     }
   })
 
-  it('처음에는 전부 「확인 전」이다 — 본 적 없는 것을 봤다고 하지 않는다', async () => {
+  it('⛔ 하나의 토글이다 — 상태와 조작을 두 컨트롤로 쪼개지 않는다', async () => {
     const { screen } = await setup(PROPOSED)
     const el = screen.container.querySelector('[data-review-section=summary]')!
     expect(el.getAttribute('data-review-state')).toBe('unreviewed')
-    expect(el.textContent).toContain('확인 전')
+
+    const btn = el.querySelector('[data-testid=accept-summary]')!
+    expect(btn.getAttribute('aria-pressed')).toBe('false')
+    expect(btn.textContent).toContain('확인함')
+  })
+
+  it('확인하면 눌린 상태가 된다', async () => {
+    const { screen } = await setup({
+      ...PROPOSED,
+      review: {
+        summary: { state: 'accepted', rubric: {} },
+        decisions: { state: 'unreviewed', rubric: {} },
+        tasks: { state: 'unreviewed', rubric: {} },
+        evidence: { state: 'unreviewed', rubric: {} },
+      },
+    })
+    expect(
+      screen.container
+        .querySelector('[data-testid=accept-summary]')!
+        .getAttribute('aria-pressed')
+    ).toBe('true')
   })
 
   it('「확인함」을 누르면 그 section만 바뀐다', async () => {
@@ -352,7 +379,11 @@ describe('⛔ 사람이 눌러야 확인된 것이다', () => {
 
   it('⛔ 확정된 문서에서는 검수를 흔들 수 없다', async () => {
     const { screen } = await setup({ ...PROPOSED, documentState: 'current' })
-    expect(screen.container.querySelector('[data-testid=accept-summary]')).toBeNull()
+    expect(
+      screen.container
+        .querySelector('[data-testid=accept-summary]')!
+        .hasAttribute('disabled')
+    ).toBe(true)
   })
 })
 
@@ -389,9 +420,10 @@ describe('⛔ 루브릭은 AI의 자기 채점이 아니다', () => {
         evidence: { state: 'accepted', rubric: {} },
       },
     })
+    // ⛔ 숫자 하나로 줄였다 — 「1건 남음」은 좁은 제목 줄을 밀어낸다
     expect(
       screen.container.querySelector('[data-review-section=decisions]')!.textContent
-    ).toContain('1건 남음')
+    ).toContain('1')
   })
 })
 

@@ -1,6 +1,21 @@
 import { useState } from 'react'
-import { CheckCheck, Loader2, Lock, PanelRight, Sparkles } from 'lucide-react'
+import {
+  CheckCheck,
+  EllipsisVertical,
+  Loader2,
+  Lock,
+  PanelRight,
+  PenLine,
+  Sparkles,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Sheet,
   SheetContent,
@@ -33,11 +48,14 @@ import { useRevision } from './use-revision'
 export function ReviewPage({
   sourceId,
   facts,
+  menuExtra,
   deps,
 }: {
   sourceId: string
   /** 처리 수치 한 줄. 전사 원문 패널의 부제로 들어간다 */
   facts?: string
+  /** ⋮ 메뉴에 덧붙일 항목 */
+  menuExtra?: React.ReactNode
   deps?: { fetch?: FetchLike; saveDelayMs?: number; pollMs?: number }
 }) {
   const rev = useRevision(sourceId, deps)
@@ -132,6 +150,7 @@ export function ReviewPage({
         onOpenTranscriptAt={openTranscriptAt}
         onOpenTranscript={() => setTranscriptOpen(true)}
         onReopen={() => void rev.reopen()}
+        menuExtra={menuExtra}
         deps={deps}
       />
 
@@ -164,6 +183,7 @@ function ApprovedView({
   onOpenTranscriptAt,
   onOpenTranscript,
   onReopen,
+  menuExtra,
   deps,
 }: {
   sourceId: string
@@ -173,11 +193,14 @@ function ApprovedView({
   onOpenTranscriptAt: (ms: number) => void
   onOpenTranscript: () => void
   onReopen: () => void
+  /** ⋮ 메뉴에 덧붙일 항목. 페이지가 회의 삭제를 넣는다 */
+  menuExtra?: React.ReactNode
   deps?: { fetch?: FetchLike; pollMs?: number }
 }) {
   const doc = useDocument(sourceId, { fetch: deps?.fetch, pollMs: deps?.pollMs })
   const state = doc.view?.documentRunState ?? null
   const running = isRunning(state)
+  const confirmed = doc.view?.documentState === 'current'
 
   return (
     <div className='flex flex-col gap-6'>
@@ -191,17 +214,13 @@ function ApprovedView({
           <PanelRight className='size-4' aria-hidden />
           전사 원문
         </Button>
-        {/* ⛔ 되돌릴 길은 서랍 안에 숨기지 않는다. 늘 보이는 자리에 둔다 */}
-        <Button variant='ghost' size='sm' onClick={onReopen}>
-          전사 수정
-        </Button>
 
         {/*
           ⛔ 좁은 화면에서 `ml-auto`만 두면 남은 폭에 따라 그룹이 어중간하게
-             밀려 «전사 원문 / 전사 수정» 다음에 큰 빈칸이 생긴다.
-             폰에서는 **한 줄을 통째로** 쓰고, 넓어지면 오른쪽으로 붙는다.
+             밀려 왼쪽 버튼 다음에 큰 빈칸이 생긴다. 폰에서는 **한 줄을
+             통째로** 쓰고, 넓어지면 오른쪽으로 붙는다.
         */}
-        <div className='flex w-full flex-wrap items-center gap-3 sm:ml-auto sm:w-auto'>
+        <div className='flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto'>
           {/*
             진행 표시는 **버튼 옆**에 둔다. 페이지 배지도 같은 말을 하지만,
             도는 동안에는 방금 누른 자리에서 반응이 보여야 한다.
@@ -217,72 +236,73 @@ function ApprovedView({
               {(doc.view.elapsedMs / 1000).toFixed(1)}초
             </span>
           )}
+
           {/*
-            ⛔ **확정은 검수가 끝나야 눌린다.** 판정은 서버가 한다 —
-               화면이 따로 판단하면 버튼은 열려 있는데 409가 나거나,
-               확정할 수 있는데 잠긴다.
+            ⛔ **주 조작은 하나다.** 이 화면이 존재하는 이유는 문서를 확정하는
+               것이고, 나머지(전사 수정·다시 정리·삭제)는 가끔 쓰는 것이다.
+               넷을 나란히 두면 무엇이 주된 일인지 사라진다.
+
+            ⛔ **하나의 사실을 두 컨트롤로 쪼개지 않는다.** 예전에는 확정 뒤에
+               「확정됨」 표시와 「확정 해제」 버튼이 나란히 있었다. 확정 여부는
+               boolean 하나인데 컨트롤이 둘이었다. 지금은 토글이다.
+
+            ⛔ 눌릴 수 있는지는 **서버가 판정한다**(`canPromote`). 화면이 따로
+               판단하면 버튼은 열려 있는데 409가 나거나, 그 반대가 된다.
           */}
-          {doc.view && doc.view.documentState !== 'current' && !running && (
+          {doc.view && !running && (
             <Button
               size='sm'
-              disabled={!canPromote(doc.view)}
-              onClick={() => void doc.promote()}
+              variant={confirmed ? 'secondary' : 'default'}
+              aria-pressed={confirmed}
+              disabled={!confirmed && !canPromote(doc.view)}
+              title={
+                confirmed
+                  ? '누르면 확정을 해제합니다'
+                  : (doc.view.blockers?.[0]?.reason ?? undefined)
+              }
+              onClick={() => void (confirmed ? doc.reopen() : doc.promote())}
               data-testid='promote'
             >
               <CheckCheck className='size-4' aria-hidden />
-              문서 확정
+              {confirmed ? '확정됨' : '문서 확정'}
             </Button>
-          )}
-          {doc.view?.documentState === 'current' && (
-            <>
-              <span className='text-state-success flex items-center gap-1.5 text-sm'>
-                <CheckCheck className='size-4' aria-hidden />
-                확정됨
-              </span>
-              {/*
-                ⛔ 되돌릴 길을 둔다. 확정 뒤에는 편집도 검수도 막히는데 되돌릴
-                   방법이 없으면, 오타 하나 고치려고 모델을 다시 돌려야 한다.
-              */}
-              <Button
-                size='sm'
-                variant='ghost'
-                onClick={() => void doc.reopen()}
-                data-testid='reopen-document'
-              >
-                확정 해제
-              </Button>
-            </>
           )}
 
-          {/* ⛔ 도는 동안에는 시작 버튼이 아예 없다. 두 번 돌리지 않는다 */}
-          {!running && (
-            <Button
-              size='sm'
-              variant={doc.view?.proposal ? 'ghost' : 'default'}
-              onClick={() => void doc.generate()}
-              data-testid='generate'
-            >
-              <Sparkles className='size-4' aria-hidden />
-              {doc.view?.proposal || state ? '다시 정리' : 'AI 정리 시작'}
-            </Button>
-          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant='ghost'
+                size='icon'
+                aria-label='이 회의에 대한 다른 조작'
+                data-testid='more-actions'
+              >
+                <EllipsisVertical className='size-4' aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align='end'>
+              <DropdownMenuItem
+                onSelect={() => void doc.generate()}
+                disabled={running}
+                data-testid='generate'
+              >
+                <Sparkles className='size-4' aria-hidden />
+                {doc.view?.proposal ? '다시 정리' : 'AI 정리 시작'}
+              </DropdownMenuItem>
+              {/* ⛔ 되돌릴 길을 숨기지 않는다. 다만 주 조작 옆은 아니다 */}
+              <DropdownMenuItem onSelect={onReopen} data-testid='reopen-transcript'>
+                <PenLine className='size-4' aria-hidden />
+                전사 수정
+              </DropdownMenuItem>
+              {menuExtra && (
+                <>
+                  <DropdownMenuSeparator />
+                  {menuExtra}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
-
-      {/*
-        ⛔ **막기만 하지 않고 무엇이 막는지 보여준다.** 이유가 없으면 사용자는
-           네 결과를 전부 다시 훑어야 한다.
-      */}
-      {doc.view && (doc.view.blockers?.length ?? 0) > 0 && (
-        <ul
-          className='text-muted-foreground flex flex-col gap-1 text-sm'
-          data-testid='blockers'
-        >
-          {doc.view.blockers!.map((b, i) => (
-            <li key={`${b.section}-${i}`}>· {b.reason}</li>
-          ))}
-        </ul>
-      )}
 
       <DocumentResult
         view={doc.view}

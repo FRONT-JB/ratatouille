@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Trash2 } from 'lucide-react'
 import { describeState } from '@ratatouille/contracts'
 import { Badge } from '@/components/ui/badge'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { PageHeader } from '@/components/layout/page-header-slot'
 import { ReviewPage } from '../review'
 import { DeleteMeeting } from './delete-meeting'
@@ -44,6 +45,7 @@ export function ProcessingPage({
 }) {
   const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
   const fetchFn = deps?.fetch
   const pollMs = deps?.pollMs ?? 1500
 
@@ -127,36 +129,55 @@ export function ProcessingPage({
    */
   const reviewing = source.job?.jobState === 'completed'
 
+  /*
+   * ⛔ **삭제는 어느 단계에서든 닿아야 한다.** 「수집 중」에서 멈춘 회의를
+   *    화면에서 치울 방법이 없었던 적이 있다. 검수 화면에서는 ⋮ 메뉴에,
+   *    그 전에는 맨 아래 조용한 버튼으로 둔다.
+   *
+   * ⛔ 확인 창은 메뉴 **밖**에 산다. 안에 두면 항목을 누르는 순간 메뉴가
+   *    닫히면서 창까지 같이 사라진다.
+   */
+  const deleteDialog = (
+    <DeleteMeeting
+      sourceId={source.sourceId}
+      label={labelFor(source)}
+      fetchFn={fetchFn}
+      onDeleted={onDeleted}
+      open={deleteOpen}
+      onOpenChange={setDeleteOpen}
+      trigger={!reviewing}
+    />
+  )
+
   return (
     <Shell title={labelFor(source)} source={source}>
       {reviewing ? (
         /*
           ⛔ 처리 수치는 여기 두지 않는다. 「받은 조각 612개」는 결과를 읽는
              동안에는 방해고, 전사가 이상할 때만 본다 — 그래서 **전사 원문
-             패널 안**으로 옮겼다. 볼 이유가 생기는 자리에 있어야 한다.
+             패널 안**으로 옮겼다.
         */
         <ReviewPage
           sourceId={source.sourceId}
           deps={{ fetch: fetchFn }}
           facts={factsOf(source)}
+          menuExtra={
+            <DropdownMenuItem
+              className='text-state-danger'
+              onSelect={() => setDeleteOpen(true)}
+              data-testid='delete-meeting-item'
+            >
+              <Trash2 className='size-4' aria-hidden />
+              회의 삭제
+            </DropdownMenuItem>
+          }
         />
       ) : (
         <ProcessingStatus source={source} onAction={(a) => void onAction(a)} />
       )}
 
-      {/*
-        ⛔ 삭제는 **맨 아래에, 조용하게** 둔다. 되돌릴 수 없는 조작을 주요
-           동작 옆에 두면 오클릭이 난다. 그래도 숨기지는 않는다 — 실제로
-           「수집 중」에서 멈춘 회의를 화면에서 치울 방법이 없었다.
-      */}
-      <div className='flex justify-end'>
-        <DeleteMeeting
-          sourceId={source.sourceId}
-          label={labelFor(source)}
-          fetchFn={fetchFn}
-          onDeleted={onDeleted}
-        />
-      </div>
+      {!reviewing && <div className='flex justify-end'>{deleteDialog}</div>}
+      {reviewing && deleteDialog}
     </Shell>
   )
 }

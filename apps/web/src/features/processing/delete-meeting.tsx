@@ -30,14 +30,29 @@ export function DeleteMeeting({
   label,
   fetchFn,
   onDeleted,
+  open: openProp,
+  onOpenChange,
+  trigger = true,
 }: {
   sourceId: string
   /** 확인 창에 보일 이름. id는 사람이 읽을 수 없다 */
   label: string
   fetchFn?: FetchLike
   onDeleted?: (sourceId: string) => void
+  /**
+   * 밖에서 여는 경우(⋮ 메뉴).
+   *
+   * ⛔ **확인 창은 메뉴 **밖**에 살아야 한다.** 메뉴 안에 두면 항목을 누르는
+   *    순간 메뉴가 닫히면서 창까지 같이 사라진다.
+   */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** 자기 버튼을 그릴지. 메뉴에서 열 때는 끈다 */
+  trigger?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [innerOpen, setInnerOpen] = useState(false)
+  const open = openProp ?? innerOpen
+  const setOpen = onOpenChange ?? setInnerOpen
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -66,12 +81,14 @@ export function DeleteMeeting({
   return (
     <>
       <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogTrigger asChild>
-          <Button variant='ghost' size='sm' className='text-state-danger w-fit'>
-            <Trash2 className='size-4' aria-hidden />
-            회의 삭제
-          </Button>
-        </AlertDialogTrigger>
+        {trigger && (
+          <AlertDialogTrigger asChild>
+            <Button variant='ghost' size='sm' className='text-state-danger w-fit'>
+              <Trash2 className='size-4' aria-hidden />
+              회의 삭제
+            </Button>
+          </AlertDialogTrigger>
+        )}
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{label} 회의를 지울까요?</AlertDialogTitle>
