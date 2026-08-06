@@ -23,6 +23,7 @@ import {
   type ReviewSection,
   applyEdit,
   editedSection,
+  describeEdit,
   describeViolation,
   verifyEvidence,
   RuleViolationError,
@@ -75,6 +76,38 @@ export type DocumentRun = {
    *    document는 "사람이 확정했나"를 말한다.
    */
   documentState: DocumentState
+  /**
+   * 사람이 손댄 필드 — 11절이 요구하는 "사용자가 수정한 필드".
+   *
+   * ⛔ **확정본만 봐서는 알 수 없다.** 고쳐진 결과에는 누가 고쳤다는 흔적이
+   *    없어서, AI가 무엇을 틀렸는지 되짚을 방법이 사라진다.
+   */
+  edits: EditRecord[]
+  /**
+   * 루브릭 판정이 바뀐 이력 — 11절의 "판정 변화".
+   *
+   * ⛔ **뒤집힌 판정이 이 기록의 값이다.** AI가 `pass`라 한 것을 사람이
+   *    `fix_required`로 바꿨다면 그게 결함 B 같은 오류를 잡은 순간이다.
+   */
+  verdictChanges: VerdictChange[]
+  /** 몇 번째 확정인가. 확정 이력의 회차 번호가 된다 */
+  promotions: number
+}
+
+export type EditRecord = {
+  at: string
+  section: ReviewSection
+  /** `summary.text`, `tasks[1].owner` 같은 필드 경로. 계약이 만든다 */
+  field: string
+}
+
+export type VerdictChange = {
+  at: string
+  section: ReviewSection
+  criterion: string
+  /** 처음 매긴 판정이면 `null` */
+  from: RubricVerdict | null
+  to: RubricVerdict
 }
 
 const STATE_FILE = 'run.state.json'
@@ -134,7 +167,7 @@ export type DocumentQueueDeps = {
    *    무엇을 만들었나"를 나중에 되짚는 것이다. 모르면 `unknown`이라고
    *    적는 편이, 그럴듯한 이름을 적어두는 것보다 낫다.
    */
-  provenance: RunProvenance
+  provenance: RunProvenance & RunProvenanceExtra
 }
 
 export type RunProvenance = {
@@ -148,15 +181,27 @@ export type RunProvenance = {
   rubric_version: string | number
 }
 
+export type RunProvenanceExtra = {
+  /** 실제로 실행한 명령. `runtime`이 무엇을 뜻하는지는 이것으로만 확인된다 */
+  runtime_command?: string
+}
+
 /** 지금 설정. 바뀌면 여기부터 고친다. */
-export const DEFAULT_PROVENANCE: RunProvenance = {
+export const DEFAULT_PROVENANCE: RunProvenance & RunProvenanceExtra = {
   model_provider: 'openai-codex',
-  auth_type: 'oauth',
+  /*
+   * ⛔ 그냥 `oauth`라고 적지 않는다. API key 인증과 ChatGPT 계정 OAuth는
+   *    만료 방식이 다르고, `auth_required`가 났을 때 무엇을 다시 해야 하는지가
+   *    갈린다 — 뭉뚱그리면 그 기록으로 원인을 짚을 수 없다.
+   */
+  auth_type: 'chatgpt_oauth',
   // ⚠️ Hermes 설정(`~/.hermes/config.yaml`)의 기본 모델을 그대로 적었다.
   //    Hermes가 실행 시점에 다른 모델로 폴백하면 이 기록은 어긋난다.
   //    실행 후 모델명을 되받을 방법이 생기면 그것으로 대체한다.
   model: 'gpt-5.6-luna',
-  runtime: 'hermes -z',
+  runtime: 'hermes_default',
+  // 실측으로 확정한 호출 경로(Phase 0.6). `hermes proxy`는 쓰지 않는다
+  runtime_command: 'hermes -z',
   prompt_version: 1,
   skill_version: 'none',
   schema_version: 1,
@@ -196,6 +241,9 @@ export class DocumentQueue {
          */
         run.review ??= emptyReview()
         run.documentState ??= 'reviewing'
+        run.edits ??= []
+        run.verdictChanges ??= []
+        run.promotions ??= run.documentState === 'current' ? 1 : 0
         // ⛔ 재기동 시점에 `documenting`이던 것은 실제로는 죽어 있다.
         //    그대로 두면 화면이 영원히 "정리 중"을 보여준다.
         if (run.state === 'documenting' || run.state === 'queued') {
@@ -244,6 +292,15 @@ export class DocumentQueue {
       )
     }
     const cur = run.review[section]
+    /*
+     * ⛔ 판정이 **바뀐 것만** 남긴다. 같은 값을 다시 눌러도 이력이 쌓이면,
+     *    "사람이 무엇을 뒤집었나"가 중복 클릭에 묻힌다.
+     */
+    for (const [criterion, to] of Object.entries(patch.rubric ?? {})) {
+      const from = cur.rubric[criterion] ?? null
+      if (from === to) continue
+      run.verdictChanges.push({ at: this.now(), section, criterion, from, to })
+    }
     run.review = {
       ...run.review,
       [section]: {
@@ -326,6 +383,7 @@ export class DocumentQueue {
       ...run.review,
       [section]: reviewAfterEdit(run.review[section]),
     }
+    run.edits.push({ at: this.now(), section, field: describeEdit(edit) })
     await this.persist(run)
     return run
   }
@@ -358,9 +416,33 @@ export class DocumentQueue {
       run.documentState,
       'current'
     ) as DocumentState
+    run.promotions += 1
     await this.persist(run)
+    await this.recordReview(run)
     await this.writeNote(run)
     return run
+  }
+
+  /**
+   * 확정 시점의 검수 결과를 이력에 남긴다 — 11절.
+   *
+   * ⛔ **최종 Markdown만으로는 부족하다.** 그건 고쳐진 결과만 보여준다.
+   *    사람이 어디를 고쳤고 어떤 판정을 뒤집었는지는 여기에만 남는다.
+   *
+   * ⛔ 회차로 쌓는다. 되돌려 다시 확정하는 길이 있으므로, 파일 하나에 두면
+   *    두 번째 확정이 write-once에 걸려 확정 자체가 실패한다.
+   */
+  private async recordReview(run: DocumentRun): Promise<void> {
+    await this.deps.runs.putReviewed(run.id, run.promotions, {
+      reviewed_at: this.now(),
+      revision_id: run.revisionId,
+      review: run.review,
+      edited_fields: run.edits.map((e) => e.field),
+      edits: run.edits,
+      verdict_changes: run.verdictChanges,
+      // 사람 손을 거친 최종본. 「무엇을 확정했나」가 이것이다
+      proposal: run.proposal,
+    })
   }
 
   /**
@@ -474,7 +556,14 @@ export class DocumentQueue {
   }
 
   private async execute(sourceId: string, revisionId: string): Promise<DocumentRun> {
-    const attempt = this.listFor(sourceId).length + 1
+    const previous = this.listFor(sourceId)
+    const attempt = previous.length + 1
+    /*
+     * ⛔ 재시도는 **새 run**이다(5절). 그래서 "재시도 시각"은 이 run의 시작
+     *    시각이고, 무엇을 다시 한 것인지는 이전 run을 가리켜야만 알 수 있다.
+     *    체인이 끊기면 세 번 실패한 회의와 세 번 정리한 회의가 같아 보인다.
+     */
+    const retryOf = previous.at(-1)?.id ?? null
     const run: DocumentRun = {
       id: `doc_${sourceId}_${attempt}`,
       sourceId,
@@ -487,6 +576,9 @@ export class DocumentQueue {
       createdAt: this.now(),
       review: emptyReview(),
       documentState: 'reviewing',
+      edits: [],
+      verdictChanges: [],
+      promotions: 0,
     }
     this.runs.set(run.id, run)
     await this.persist(run)
@@ -507,31 +599,6 @@ export class DocumentQueue {
       run.proposal = result.proposal
       run.violations = result.violations
 
-      /*
-       * ⛔ 불변 이력(11절). **검증에 실패한 결과도 남긴다** — 무엇이
-       *    잘못됐는지 되짚을 수 없으면 프롬프트를 고칠 수도 없다.
-       *
-       * ⛔ `input.json`은 audio·transcript를 복사하지 않고 **ID와 hash로만**
-       *    참조한다. 저장소가 그것을 강제한다.
-       */
-      const src = this.deps.sources.get(sourceId)
-      await this.deps.runs.putDocumentationRun(run.id, {
-        input: {
-          source_id: sourceId,
-          source_hash: src.sourceHash,
-          transcription_id: rev.jobId,
-          transcript_revision_id: revisionId,
-          segment_count: segments.length,
-        },
-        meta: {
-          ...this.deps.provenance,
-          elapsed_ms: result.elapsedMs,
-          evidence_violations: result.violations.length,
-          started_at: run.createdAt,
-        },
-      })
-      await this.deps.runs.putProposed(run.id, result.proposal)
-
       if (!canPromoteToProposed(result.violations)) {
         // 결과를 버리지 않는다. 상태만 실패로 두고 위반을 보여준다.
         run.state = transition(
@@ -547,6 +614,19 @@ export class DocumentQueue {
           'proposed'
         ) as DocumentRunState
       }
+
+      /*
+       * ⛔ 불변 이력(11절). **검증에 실패한 결과도 남긴다** — 무엇이
+       *    잘못됐는지 되짚을 수 없으면 프롬프트를 고칠 수도 없다.
+       */
+      await this.recordRun(run, {
+        transcriptionId: rev.jobId,
+        segmentCount: segments.length,
+        attempt,
+        retryOf,
+        violations: result.violations.length,
+      })
+      await this.deps.runs.putProposed(run.id, result.proposal)
     } catch (e) {
       const kind = e instanceof DocumentFailed ? e.kind : 'retryable'
       run.error = e instanceof Error ? e.message : String(e)
@@ -557,10 +637,73 @@ export class DocumentQueue {
         //    사용자는 실제로 필요한 재인증에 영영 도달하지 못한다.
         kind === 'auth_required' ? 'auth_required' : 'failed_retryable'
       ) as DocumentRunState
+
+      /*
+       * ⛔ **실패한 실행도 이력이다.** 성공한 것만 남기면 "왜 세 번이나 다시
+       *    돌렸나"를 나중에 설명할 수 없고, `auth_required`가 언제부터
+       *    반복됐는지도 사라진다.
+       *
+       * ⚠️ 여기서 던지지 않는다. 이력 기록이 실패하면 사용자가 볼 원인이
+       *    「인증 만료」에서 「파일 쓰기 오류」로 바뀐다.
+       */
+      try {
+        await this.recordRun(run, {
+          transcriptionId: rev.jobId,
+          segmentCount: segments.length,
+          attempt,
+          retryOf,
+          violations: 0,
+        })
+      } catch {
+        // 실패한 실행을 이력 오류로 두 번 죽이지 않는다
+      }
     }
 
     this.runs.set(run.id, run)
     await this.persist(run)
     return run
+  }
+
+  /**
+   * 실행 이력 — 11절.
+   *
+   * ⛔ `input.json`은 audio·transcript를 복사하지 않고 **ID와 hash로만**
+   *    참조한다. 저장소가 그것을 강제한다.
+   */
+  private async recordRun(
+    run: DocumentRun,
+    ctx: {
+      transcriptionId: string
+      segmentCount: number
+      attempt: number
+      retryOf: string | null
+      violations: number
+    }
+  ): Promise<void> {
+    const src = this.deps.sources.get(run.sourceId)
+    await this.deps.runs.putDocumentationRun(run.id, {
+      input: {
+        source_id: run.sourceId,
+        source_hash: src.sourceHash,
+        transcription_id: ctx.transcriptionId,
+        transcript_revision_id: run.revisionId,
+        segment_count: ctx.segmentCount,
+      },
+      meta: {
+        ...this.deps.provenance,
+        attempt: ctx.attempt,
+        retry_of: ctx.retryOf,
+        started_at: run.createdAt,
+        finished_at: this.now(),
+        elapsed_ms: run.elapsedMs,
+        evidence_violations: ctx.violations,
+        /*
+         * ⛔ 실행이 어떻게 끝났는지를 이력에 적는다. run.state.json은 다시
+         *    돌리면 덮이지만 이 파일은 불변이다 — 이 회차의 결말은 여기에만 남는다.
+         */
+        outcome: run.state,
+        error: run.error,
+      },
+    })
   }
 }

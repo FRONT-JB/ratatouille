@@ -15,6 +15,7 @@ import {
   type ProposalEdit,
   RuleViolationError,
   applyEdit,
+  describeEdit,
   editedSection,
 } from '../src/index.ts'
 
@@ -49,6 +50,44 @@ describe('무엇을 고쳤나', () => {
   it('편집은 자기 section을 안다 — 그 section이 「고침」이 된다', () => {
     expect(editedSection({ section: 'summary', kind: 'text', text: 'x[seg_0]' })).toBe('summary')
     expect(editedSection({ section: 'tasks', kind: 'owner', index: 0, value: '이한결' })).toBe('tasks')
+  })
+
+  /*
+   * 11절이 run 이력에 요구하는 "사용자가 수정한 필드". 확정본에는 사람이
+   * 손댔다는 흔적이 없으므로, 이 이름이 곧 AI가 무엇을 틀렸는지의 목록이다.
+   */
+  it('어느 필드를 고쳤는지 이름으로 말한다', () => {
+    expect(describeEdit({ section: 'summary', kind: 'text', text: 'x[seg_0]' })).toBe('summary.text')
+    expect(describeEdit({ section: 'summary', kind: 'narrative', index: 2, body: 'x' })).toBe(
+      'summary.narrative[2].body'
+    )
+    expect(describeEdit({ section: 'decisions', kind: 'text', index: 0, text: 'x' })).toBe(
+      'decisions[0].what'
+    )
+    expect(describeEdit({ section: 'tasks', kind: 'text', index: 1, text: 'x' })).toBe(
+      'tasks[1].action'
+    )
+    expect(describeEdit({ section: 'tasks', kind: 'owner', index: 1, value: '이한결' })).toBe(
+      'tasks[1].owner'
+    )
+    expect(describeEdit({ section: 'tasks', kind: 'due', index: 1, value: null })).toBe(
+      'tasks[1].due'
+    )
+  })
+
+  it('⛔ 삭제도 수정이다 — 결함 B의 유일한 시정이 항목 삭제였다', () => {
+    expect(describeEdit({ section: 'decisions', kind: 'remove', index: 1 })).toBe(
+      'decisions[1] 삭제'
+    )
+  })
+
+  it('⛔ 편집 내용을 담지 않는다 — 같은 문장이 두 곳에서 따로 늙는다', () => {
+    const field = describeEdit({
+      section: 'summary',
+      kind: 'text',
+      text: '오픈을 3월 16일로 미뤘다[seg_0].',
+    })
+    expect(field).not.toContain('3월 16일')
   })
 })
 

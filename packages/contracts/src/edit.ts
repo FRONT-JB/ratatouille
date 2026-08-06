@@ -40,6 +40,33 @@ export function editedSection(edit: ProposalEdit): ReviewSection {
   return edit.section
 }
 
+/**
+ * 무엇을 고쳤나 — 11절이 run 이력에 요구하는 "사용자가 수정한 필드".
+ *
+ * ⛔ **편집 내용을 담지 않는다.** 고친 결과는 확정본에 그대로 있다. 여기 필요한
+ *    것은 «어디를 사람이 손댔나»이고, 본문까지 복사하면 같은 문장이 두 곳에서
+ *    따로 늙는다.
+ *
+ * ⛔ 편집의 형태를 아는 곳은 계약이다. 서버가 자기 문자열을 만들면 편집 종류가
+ *    늘 때마다 두 곳이 갈라진다.
+ */
+export function describeEdit(edit: ProposalEdit): string {
+  switch (edit.kind) {
+    case 'text':
+      if (edit.section === 'summary') return 'summary.text'
+      return `${edit.section}[${edit.index}].${
+        edit.section === 'decisions' ? 'what' : 'action'
+      }`
+    case 'narrative':
+      return `summary.narrative[${edit.index}].body`
+    case 'owner':
+    case 'due':
+      return `tasks[${edit.index}].${edit.kind}`
+    case 'remove':
+      return `${edit.section}[${edit.index}] 삭제`
+  }
+}
+
 /** 사람이 고칠 수 있는 section. 원문 근거는 빠져 있다 */
 const EDITABLE: readonly string[] = ['summary', 'decisions', 'tasks']
 

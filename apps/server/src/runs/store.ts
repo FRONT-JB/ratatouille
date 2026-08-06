@@ -114,6 +114,21 @@ function isFilled(v: unknown): boolean {
   return true
 }
 
+/**
+ * 확정 회차 파일명.
+ *
+ * ⛔ 0으로 채운다. `10.json`이 `2.json`보다 앞에 오면 목록이 회차순이 아니게
+ *    되고, "마지막 확정본"이 조용히 틀린 것을 가리킨다.
+ */
+function reviewedFile(seq: number): string {
+  if (!Number.isInteger(seq) || seq < 1) {
+    throw new InvalidRunInputError(
+      `확정 회차는 1 이상의 정수다: ${seq}. 회차가 없으면 어느 확정본인지 알 수 없다.`
+    )
+  }
+  return `${String(seq).padStart(3, '0')}.json`
+}
+
 function assertSafeId(id: string, label = 'id'): void {
   if (!id || /[/\\]/.test(id) || id === '.' || id === '..') {
     throw new InvalidRunInputError(`${label}에 경로 구분자를 쓸 수 없다: ${id}`)
@@ -242,19 +257,40 @@ export class RunArtifactStore {
   }
 
   /**
-   * 사람의 검수 결과.
+   * 사람의 검수 결과. **확정할 때마다 회차로 쌓는다.**
    *
-   * ⚠️ 이것도 불변으로 둔다. 같은 run을 다시 검수하는 것이 아니라,
-   *    다시 실행하면 새 run id가 생긴다는 전제다 (5절 "중복 실행이 current
-   *    문서를 조용히 덮지 않는다"). Phase 6에서 부분 저장이 필요해지면
-   *    이 전제를 다시 확인해야 한다.
+   * ⚠️ 처음에는 `reviewed.json` 하나였다. "다시 실행하면 새 run id가 생기니
+   *    한 run의 검수는 한 번"이라는 전제였는데, 확정을 되돌리는 길(`reopen`)이
+   *    생기면서 깨졌다 — 같은 run을 고쳐 다시 확정하면 write-once에 걸려
+   *    **확정 자체가 실패한다.**
+   *
+   * 회차는 부르는 쪽이 정한다. 자동 증가로 두면 같은 내용을 두 번 저장했을 때
+   * 파일이 둘 생겨서, 재시도가 이력에 없던 확정을 만들어낸다.
    */
-  async putReviewed(runId: string, reviewed: unknown): Promise<void> {
+  async putReviewed(runId: string, seq: number, reviewed: unknown): Promise<void> {
     assertSafeId(runId, 'run id')
     await this.writeOnce(
-      path.join('documentation-runs', runId, 'reviewed.json'),
+      path.join('documentation-runs', runId, 'reviewed', reviewedFile(seq)),
       canonical(reviewed)
     )
+  }
+
+  /** 확정 회차 순. 비어 있으면 아직 확정되지 않았다 */
+  async listReviewed(runId: string): Promise<unknown[]> {
+    const dir = path.join('documentation-runs', runId, 'reviewed')
+    let entries: string[]
+    try {
+      entries = await fs.readdir(path.join(this.root, dir))
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw e
+    }
+    const out: unknown[] = []
+    // 파일명이 0으로 채워져 있어 사전순이 곧 회차순이다
+    for (const name of entries.filter((e) => e.endsWith('.json')).sort()) {
+      out.push(await this.readJson(path.join(dir, name)))
+    }
+    return out
   }
 
   async readDocumentationRun(runId: string): Promise<DocumentationRunRecord | null> {
@@ -272,7 +308,8 @@ export class RunArtifactStore {
       input,
       run,
       proposed: await this.readJson(path.join(dir, 'proposed.json')),
-      reviewed: await this.readJson(path.join(dir, 'reviewed.json')),
+      // 「지금의 검수 결과」는 마지막 확정본이다. 앞 회차는 `listReviewed`로 본다
+      reviewed: (await this.listReviewed(runId)).at(-1) ?? null,
     }
   }
 

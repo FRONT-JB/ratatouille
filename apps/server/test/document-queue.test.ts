@@ -12,7 +12,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
-import { RuleViolationError } from '@ratatouille/contracts'
+import { type DocumentReview, RuleViolationError } from '@ratatouille/contracts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_PROVENANCE, DocumentQueue } from '../src/documents/queue.ts'
 import { DocumentRunner, looksLikeAuthFailure } from '../src/documents/runner.ts'
@@ -58,6 +58,12 @@ function fakeHermes() {
     return emitter
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any
+}
+
+async function readRunMeta(runId: string): Promise<Record<string, unknown>> {
+  return JSON.parse(
+    await readFile(path.join(root, 'runs/documentation-runs', runId, 'run.json'), 'utf8')
+  )
 }
 
 async function readySource(id = 'src_01') {
@@ -709,15 +715,177 @@ describe('⛔ 불변 이력 — 11절', () => {
     await withRevision()
     const run = await queue.enqueue('src_01')
 
-    const meta = JSON.parse(
-      await readFile(
-        path.join(root, 'runs/documentation-runs', run.id, 'run.json'),
-        'utf8'
-      )
-    )
+    const meta = await readRunMeta(run.id)
     expect(meta.model_provider).toBe('openai-codex')
     expect(meta.model).toBeTruthy()
     expect(meta.runtime).toContain('hermes')
+    // ⛔ ChatGPT OAuth는 API key와 다른 인증이다. 뭉뚱그리면 만료 원인을 못 짚는다
+    expect(meta.auth_type).toBe('chatgpt_oauth')
+  })
+
+  it('시작과 종료 시각이 남는다 — 얼마나 걸렸는지 되짚을 수 있어야 한다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    const meta = await readRunMeta(run.id)
+    expect(Date.parse(meta.started_at as string)).not.toBeNaN()
+    expect(Date.parse(meta.finished_at as string)).not.toBeNaN()
+    expect(Date.parse(meta.finished_at as string)).toBeGreaterThanOrEqual(
+      Date.parse(meta.started_at as string)
+    )
+  })
+
+  it('⛔ 실패한 실행도 이력을 남긴다 — 못 보면 고칠 수 없다', async () => {
+    exitCode = 1
+    modelOutput = 'Error: 401 Unauthorized — token expired'
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    const meta = await readRunMeta(run.id)
+    expect(meta.outcome).toBe('auth_required')
+    expect(meta.finished_at).toBeTruthy()
+    // 결과가 없으니 제안은 없다. 그래도 실행 기록은 남는다
+    expect((await runs.readDocumentationRun(run.id))?.proposed).toBeNull()
+  })
+
+  it('재시도가 이전 실행을 가리킨다 — 몇 번째 시도인지와 언제였는지', async () => {
+    exitCode = 1
+    modelOutput = 'Error: connection reset'
+    await withRevision()
+    const first = await queue.enqueue('src_01')
+
+    exitCode = 0
+    modelOutput = GOOD
+    const second = await queue.enqueue('src_01')
+
+    expect((await readRunMeta(first.id)).attempt).toBe(1)
+    expect((await readRunMeta(first.id)).retry_of).toBeNull()
+    expect((await readRunMeta(second.id)).attempt).toBe(2)
+    expect((await readRunMeta(second.id)).retry_of).toBe(first.id)
+  })
+})
+
+/**
+ * 11절 — "사용자가 수정한 필드와 판정 변화".
+ *
+ * ⛔ **AI가 무엇을 틀렸는지는 이 기록에만 남는다.** 최종 Markdown은 고쳐진
+ *    결과만 보여주므로, 사람이 어디를 고쳤는지 되짚을 방법이 사라진다.
+ *    루브릭이 품질 도구인지 행정 절차인지도 이 기록으로만 판단할 수 있다.
+ */
+describe('⛔ 확정하면 사람이 무엇을 바꿨는지 남는다 — 11절', () => {
+  /** 아직 확인하지 않은 section만 확인한다 — 고친 것은 이미 `edited`다 */
+  async function acceptRest(runId: string, ...skip: readonly string[]) {
+    for (const s of ['summary', 'decisions', 'evidence'] as const) {
+      if (skip.includes(s)) continue
+      await queue.review(runId, s, { state: 'accepted' })
+    }
+    if (!skip.includes('tasks')) {
+      await queue.review(runId, 'tasks', { state: 'empty' })
+    }
+  }
+
+  it('사람이 고친 필드가 남는다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await queue.edit(run.id, {
+      section: 'summary',
+      kind: 'text',
+      text: '오픈을 3월 16일로 연기했다. [seg_1]',
+    })
+    await acceptRest(run.id, 'summary')
+    await queue.promote(run.id)
+
+    const reviewed = (await runs.listReviewed(run.id))[0] as {
+      edited_fields: string[]
+      review: DocumentReview
+      proposal: { summary: { text: string } }
+    }
+    expect(reviewed.edited_fields).toEqual(['summary.text'])
+    expect(reviewed.review.summary.state).toBe('edited')
+    // 사람 손을 거친 최종본이 함께 남는다 — 무엇을 확정했는지가 이것이다
+    expect(reviewed.proposal.summary.text).toContain('3월 16일로 연기했다')
+  })
+
+  it('⛔ 판정을 뒤집은 이력이 남는다 — 그게 이 기록의 값이다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await queue.review(run.id, 'decisions', {
+      rubric: { 'decision-vs-proposal': 'fix_required' },
+    })
+    // 항목을 지워 지적을 해소한 뒤 판정을 되돌린다
+    await queue.edit(run.id, { section: 'decisions', kind: 'remove', index: 0 })
+    await queue.review(run.id, 'decisions', {
+      rubric: { 'decision-vs-proposal': 'pass' },
+    })
+    for (const s of ['summary', 'evidence'] as const) {
+      await queue.review(run.id, s, { state: 'accepted' })
+    }
+    await queue.review(run.id, 'tasks', { state: 'empty' })
+    await queue.review(run.id, 'decisions', { state: 'empty' })
+    await queue.promote(run.id)
+
+    const reviewed = (await runs.listReviewed(run.id))[0] as {
+      verdict_changes: {
+        at: string
+        section: string
+        criterion: string
+        from: string | null
+        to: string
+      }[]
+    }
+    expect(reviewed.verdict_changes).toEqual([
+      {
+        at: expect.any(String),
+        section: 'decisions',
+        criterion: 'decision-vs-proposal',
+        from: null,
+        to: 'fix_required',
+      },
+      {
+        at: expect.any(String),
+        section: 'decisions',
+        criterion: 'decision-vs-proposal',
+        from: 'fix_required',
+        to: 'pass',
+      },
+    ])
+  })
+
+  it('⛔ 되돌려 다시 확정하면 새 회차로 쌓인다 — 이전 확정을 덮지 않는다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await acceptRest(run.id)
+    await queue.promote(run.id)
+
+    await queue.reopen(run.id)
+    await queue.edit(run.id, {
+      section: 'summary',
+      kind: 'text',
+      text: '오픈 연기를 확정했다. [seg_1]',
+    })
+    await queue.promote(run.id)
+
+    const all = (await runs.listReviewed(run.id)) as { edited_fields: string[] }[]
+    expect(all).toHaveLength(2)
+    expect(all[0]?.edited_fields).toEqual([])
+    expect(all[1]?.edited_fields).toEqual(['summary.text'])
+  })
+
+  it('⛔ 편집·판정 이력이 디스크에 남는다 — 재시작해도 사라지면 안 된다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await queue.review(run.id, 'summary', { rubric: { readable: 'uncertain' } })
+
+    const reloaded = new DocumentQueue({
+      runner: new DocumentRunner({ spawnFn: fakeHermes() }),
+      sources,
+      revisions,
+      runs,
+      stateRoot: path.join(root, 'docruns'),
+      provenance: DEFAULT_PROVENANCE,
+    })
+    await reloaded.load()
+    expect(reloaded.get(run.id)!.verdictChanges).toHaveLength(1)
   })
 })
 

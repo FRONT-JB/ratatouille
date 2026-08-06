@@ -214,15 +214,61 @@ describe('audio artifact', () => {
   })
 })
 
+describe('검수 결과는 회차로 쌓인다', () => {
+  /*
+   * ⛔ 확정은 한 번으로 끝나지 않는다. 되돌리고 고쳐서 다시 확정하는 길이
+   *    있으므로(`reopen`), 검수 결과를 파일 하나에 두면 두 번째 확정이
+   *    write-once에 걸려 **확정 자체가 실패한다.**
+   */
+  it('회차마다 별도 파일로 남는다', async () => {
+    await runs.putDocumentationRun('run_01', { input: INPUT, meta: RUN_META })
+    await runs.putReviewed('run_01', 1, { note: '첫 확정' })
+    await runs.putReviewed('run_01', 2, { note: '고쳐서 다시 확정' })
+
+    expect(
+      JSON.parse(
+        await readFile(
+          path.join(root, 'runs/documentation-runs/run_01/reviewed/001.json'),
+          'utf8'
+        )
+      )
+    ).toEqual({ note: '첫 확정' })
+    expect(await runs.listReviewed('run_01')).toEqual([
+      { note: '첫 확정' },
+      { note: '고쳐서 다시 확정' },
+    ])
+  })
+
+  it('⛔ 같은 회차를 다른 내용으로 덮지 않는다 — 이력이다', async () => {
+    await runs.putDocumentationRun('run_01', { input: INPUT, meta: RUN_META })
+    await runs.putReviewed('run_01', 1, { note: '첫 확정' })
+
+    await expect(runs.putReviewed('run_01', 1, { note: '고침' })).rejects.toThrow(
+      ArtifactImmutableError
+    )
+  })
+
+  it('같은 내용 재기록은 통과한다 — 재시도가 실패로 보이면 안 된다', async () => {
+    await runs.putDocumentationRun('run_01', { input: INPUT, meta: RUN_META })
+    await runs.putReviewed('run_01', 1, { note: '첫 확정' })
+    await expect(runs.putReviewed('run_01', 1, { note: '첫 확정' })).resolves.toBeUndefined()
+  })
+
+  it('회차 번호가 정수가 아니면 거절한다', async () => {
+    await expect(runs.putReviewed('run_01', 0, {})).rejects.toThrow(InvalidRunInputError)
+  })
+})
+
 describe('읽기와 목록', () => {
   it('document run 하나를 통째로 읽는다', async () => {
     await runs.putDocumentationRun('run_01', { input: INPUT, meta: RUN_META })
     await runs.putProposed('run_01', { summary: '초안' })
-    await runs.putReviewed('run_01', { approved: true })
+    await runs.putReviewed('run_01', 1, { approved: true })
 
     const r = await runs.readDocumentationRun('run_01')
     expect(r?.input.source_id).toBe('src_01')
     expect(r?.proposed).toEqual({ summary: '초안' })
+    // 마지막 확정본이 지금의 검수 결과다
     expect(r?.reviewed).toEqual({ approved: true })
     expect(r?.run.model_provider).toBe('openai-codex')
   })
