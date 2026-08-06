@@ -12,6 +12,26 @@ export default defineConfig({
     // 프록시한다. 다른 기기에서 개발 서버에 접근하려면 이 허용 목록이 필요하다.
     // 공개 인터넷용 Funnel은 활성화하지 않았다.
     allowedHosts: ['tailnet-host.example'],
+    /**
+     * `/api`를 로컬 데몬으로 넘긴다.
+     *
+     * ⛔ 이게 없으면 원격 기기에서 `/api/health`가 **index.html을 돌려준다.**
+     *    Vite가 모르는 경로를 SPA fallback으로 처리하기 때문이다. 그러면
+     *    `res.json()`이 `Unexpected token '<'`로 깨지고, 원인이 서버가 아니라
+     *    프록시 누락이라는 걸 알아채기 어렵다.
+     *
+     * ⚠️ Hono는 **127.0.0.1에만** 바인딩한다(`apps/server/src/index.ts`).
+     *    tailnet 진입점은 Tailscale Serve 하나로 유지하고, 백엔드 포트를
+     *    직접 열지 않는다. Funnel(공개 인터넷)은 쓰지 않는다.
+     */
+    proxy: {
+      '/api': {
+        target: `http://127.0.0.1:${process.env.RATATOUILLE_SERVER_PORT ?? 5174}`,
+        changeOrigin: true,
+        // 30분 녹음의 조각 업로드가 느린 회선에서 끊기지 않도록 넉넉히 둔다
+        timeout: 10 * 60_000,
+      },
+    },
   },
   plugins: [
     tanstackRouter({
