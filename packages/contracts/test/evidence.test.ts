@@ -15,6 +15,16 @@ const segments: TranscriptSegment[] = [
   { id: 'seg002', timestamp: '00:00:10', text: '계약서는 금요일까지 볼게요.' },
 ]
 
+/**
+ * Action Item 하나.
+ *
+ * 담당자·기한은 이 파일의 관심사가 아니라 `null`로 둔다. 회의에서 지목되지
+ * 않은 것이 정상이고, evidence 검증은 그것과 무관하다.
+ */
+function task(action: string, evidence: string[]) {
+  return { action, owner: null, due: null, evidence }
+}
+
 function proposalWith(over: Partial<DocumentProposal>): DocumentProposal {
   return {
     summary: { text: '요약', evidence: [] },
@@ -59,7 +69,7 @@ describe('결함 A — 인용됐지만 evidence 배열에 없음', () => {
 
   it('위반이 있으면 proposed로 승격시키지 않는다', () => {
     const p = proposalWith({
-      tasks: [{ action: '계약서 검토', evidence: ['seg002'] }],
+      tasks: [task('계약서 검토', ['seg002'])],
       evidence: [],
     })
     expect(canPromoteToProposed(verifyEvidence(p, segments))).toBe(false)
@@ -68,7 +78,7 @@ describe('결함 A — 인용됐지만 evidence 배열에 없음', () => {
   it('어느 section에서 인용했는지 보고한다', () => {
     const p = proposalWith({
       summary: { text: '요약', evidence: ['seg000'] },
-      tasks: [{ action: 'a', evidence: ['seg001'] }, { action: 'b', evidence: ['seg002'] }],
+      tasks: [task('a', ['seg001']), task('b', ['seg002'])],
     })
     const v = verifyEvidence(p, segments)
     expect(v.map((x) => 'citedIn' in x && x.citedIn)).toEqual([
@@ -293,7 +303,7 @@ describe('경계 조건', () => {
     const p = proposalWith({
       summary: { text: '요약', evidence: ['seg000'] },
       decisions: [{ what: 'd', evidence: ['seg000'] }],
-      tasks: [{ action: 't', evidence: ['seg000'] }],
+      tasks: [task('t', ['seg000'])],
     })
     const v = verifyEvidence(p, segments)
     expect(v.filter((x) => x.kind === 'not_in_evidence_array')).toHaveLength(1)

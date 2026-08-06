@@ -13,6 +13,8 @@ const src = (over: Partial<SessionSource> = {}): SessionSource => ({
   captureMode: 'in_person',
   startedAt: '2026-08-06T09:54:12.777Z',
   job: null,
+  revisionState: null,
+  documentRunState: null,
   nextAction: null,
   ...over,
 })
@@ -84,6 +86,36 @@ describe('상태말', () => {
     for (const s of ['queued', 'transcribing', 'completed', 'failed_retryable']) {
       expect(badgeFor(src({ job: job(s) }))).toMatch(/[가-힣]/)
     }
+  })
+})
+
+describe('⛔ 확정한 뒤에도 「교정 전」이라고 하지 않는다', () => {
+  // 실제 결함이었다. 전사 job은 확정한 뒤에도 영원히 `completed`라, job만 보면
+  // 사이드바가 영영 "교정 전"을 띄운다. 서버는 `transcript_approved`를
+  // 보내고 있었는데도 그랬다.
+  const done = (over: Partial<SessionSource> = {}) =>
+    src({ job: job('completed'), revisionState: 'transcript_approved', ...over })
+
+  it('확정했고 정리를 안 했으면 "정리 전"', () => {
+    expect(badgeFor(done())).toBe('정리 전')
+  })
+
+  it('교정 중이면 "교정 전"', () => {
+    expect(badgeFor(done({ revisionState: 'transcript_reviewing' }))).toBe('교정 전')
+  })
+
+  it.each([
+    ['queued', '정리 대기'],
+    ['documenting', '정리 중'],
+    ['proposed', '검수 대기'],
+    ['failed_retryable', '정리 실패'],
+    ['auth_required', '로그인 필요'],
+  ] as const)('정리가 %s면 "%s"', (state, expected) => {
+    expect(badgeFor(done({ documentRunState: state }))).toBe(expected)
+  })
+
+  it('⛔ 검수가 남았는데 "완료"라고 하지 않는다', () => {
+    expect(badgeFor(done({ documentRunState: 'proposed' }))).not.toContain('완료')
   })
 })
 

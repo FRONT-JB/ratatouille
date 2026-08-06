@@ -9,8 +9,14 @@
  *    합치는 순간 화면이 어느 객체 이야기인지 알 수 없게 된다.
  */
 
-import { type StateRef, describeState, nextActionFor } from '@ratatouille/contracts'
+import {
+  type StateRef,
+  describeState,
+  nextActionFor,
+  nextActionForMeeting,
+} from '@ratatouille/contracts'
 import { Hono } from 'hono'
+import type { DocumentQueue } from '../documents/queue.ts'
 import type { RevisionStore } from '../revisions/store.ts'
 import type { RunArtifactStore } from '../runs/store.ts'
 import { SourceNotFoundError, type SourceRepository } from '../sources/repository.ts'
@@ -46,7 +52,9 @@ export function transcriptionRoutes(
   queue: TranscriptionQueue,
   runs?: RunArtifactStore,
   /** 없으면 세션에 교정 상태가 나오지 않는다 (수집만 하는 테스트용 앱) */
-  revisions?: RevisionStore
+  revisions?: RevisionStore,
+  /** 없으면 세션에 AI 정리 상태가 나오지 않는다 */
+  documents?: DocumentQueue
 ): Hono {
   const app = new Hono()
 
@@ -154,13 +162,23 @@ export function transcriptionRoutes(
          *    아직 전사가 없으면 null이다 — 없는 것을 있는 척하지 않는다.
          */
         revisionState: revisions?.current(s.id)?.state ?? null,
-        // job이 있으면 job의 다음 조작이, 없으면 source의 다음 조작이 우선한다.
-        // 전사가 돌고 있는데 "전사 시작"을 권하면 중복 실행을 유도한다.
-        nextAction: job
-          ? job.retryable
-            ? nextActionFor({ machine: 'transcriptionJob', state: job.state })
-            : null
-          : nextActionFor(sourceRef),
+        /*
+         * ⛔ AI 정리 상태도 **따로** 낸다. 이게 없으면 화면은 확정된 회의가
+         *    정리를 기다리는지, 도는 중인지, 검수를 기다리는지 구분할 수 없다.
+         */
+        documentRunState: documents?.latestFor(s.id)?.state ?? null,
+        /*
+         * ⛔ 다음 조작은 **계약이 정한다**(`meetingStage`). 예전에는 여기서
+         *    job 상태만 보고 골랐고, 그래서 확정된 회의에도 「전사 교정하기」를
+         *    권했다. 전사 job은 확정한 뒤에도 영원히 `completed`다.
+         */
+        nextAction: nextActionForMeeting({
+          sourceState: s.state,
+          jobState: job?.state ?? null,
+          jobRetryable: job?.retryable ?? true,
+          revisionState: revisions?.current(s.id)?.state ?? null,
+          documentRunState: documents?.latestFor(s.id)?.state ?? null,
+        }),
       }
     })
 

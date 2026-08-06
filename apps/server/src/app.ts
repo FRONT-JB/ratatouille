@@ -82,7 +82,13 @@ export function createApp(deps: AppDeps): Hono {
   if (deps.transcription) {
     app.route(
       '/api',
-      transcriptionRoutes(deps.sources, deps.transcription, deps.runs, deps.revisions)
+      transcriptionRoutes(
+        deps.sources,
+        deps.transcription,
+        deps.runs,
+        deps.revisions,
+        deps.documents
+      )
     )
   }
 

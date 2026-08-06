@@ -43,8 +43,29 @@ const REVISION = (over: Partial<RevisionView> = {}): RevisionView => ({
   ...over,
 })
 
+/** 아직 정리하지 않은 상태 */
+const NO_DOCUMENT = { documentRunState: null, proposal: null }
+
+/** 정리가 끝난 상태. 근거는 문장 안에 있다 */
+const WITH_DOCUMENT = {
+  runId: 'doc_1',
+  documentRunState: 'proposed',
+  revisionId: 'rev_src_01_1',
+  error: null,
+  violations: [],
+  elapsedMs: 1000,
+  proposal: {
+    summary: { text: '미경험 엔지니어도 채용한다[seg_1].', evidence: ['seg_1'] },
+    decisions: [],
+    tasks: [],
+    evidence: [
+      { id: 'seg_1', timestamp: '00:00:02', quote: '아예 아무것도 모르는 사람도 채용을 해요.' },
+    ],
+  },
+}
+
 /** 서버 대역. PATCH는 보낸 텍스트를 반영해 돌려준다 — 실제 서버와 같게. */
-function server(initial = REVISION()) {
+function server(initial = REVISION(), document: unknown = NO_DOCUMENT) {
   let state = initial
   const calls: { url: string; method: string; body?: unknown }[] = []
 
@@ -52,6 +73,16 @@ function server(initial = REVISION()) {
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ url, method, body })
+
+    // AI 정리는 별도 자원이다. 교정본 응답을 그대로 돌려주면 화면이 이상한
+    // 상태를 그리고, 무엇이 깨졌는지 알 수 없게 된다.
+    if (url.includes('/document')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => document,
+      } as unknown as Response
+    }
 
     if (method === 'PATCH') {
       const patches = new Map(
@@ -117,8 +148,14 @@ describe('⛔ 전사 확정 전에는 AI 결과가 잠겨 있다', () => {
     await screen.getByTestId('approve-transcript').click()
 
     await vi.waitFor(() =>
-      expect(screen.container.querySelector('[data-testid=ai-pending]')).toBeTruthy()
+      expect(screen.container.querySelector('[data-testid=ai-result]')).toBeTruthy()
     )
+  })
+
+  it('⛔ 확정 전에는 결과 영역을 마운트조차 하지 않는다', async () => {
+    // 마운트하면 그 자리에서 조회하고, 조회 자체가 계약 위반이다.
+    const { screen } = await setup()
+    expect(screen.container.querySelector('[data-testid=ai-result]')).toBeNull()
   })
 })
 
@@ -245,6 +282,85 @@ describe('⛔ 확정하면 잠긴다', () => {
     const approveIdx = calls.findIndex((c) => c.url.endsWith('/approve'))
     expect(patchIdx).toBeGreaterThanOrEqual(0)
     expect(patchIdx).toBeLessThan(approveIdx)
+  })
+})
+
+describe('⛔ 확정 뒤에는 검수가 주 작업이다', () => {
+  const approved = async () => {
+    const s = await setup()
+    await s.screen.getByTestId('approve-transcript').click()
+    await vi.waitFor(() =>
+      expect(s.screen.container.querySelector('[data-testid=ai-result]')).toBeTruthy()
+    )
+    return s
+  }
+
+  it('⛔ 전사가 화면 절반을 계속 차지하지 않는다', async () => {
+    // 확정 뒤에도 절반을 전사에 내주면 정작 읽어야 할 결과가 좁은 칸에 갇힌다.
+    const { screen } = await approved()
+    const layout = screen.container.querySelector('[data-testid=review-layout]')!
+    expect(layout.className).not.toContain('lg:grid-cols')
+  })
+
+  it('전사는 닫혀 있다', async () => {
+    const { screen } = await approved()
+    expect(screen.container.querySelector('[data-testid=transcript-drawer]')).toBeNull()
+  })
+
+  it('열어서 볼 수 있다', async () => {
+    const { screen } = await approved()
+    await screen.getByTestId('open-transcript').click()
+
+    await expect
+      .element(screen.getByRole('dialog', { name: '전사 원문' }))
+      .toBeInTheDocument()
+  })
+
+  it('⛔ 닫는 길이 있다 — 덮은 것에서 빠져나오지 못하면 갇힌 것이다', async () => {
+    const { screen } = await approved()
+    await screen.getByTestId('open-transcript').click()
+    await screen.getByRole('button', { name: '닫기' }).click()
+
+    await vi.waitFor(() =>
+      expect(screen.container.querySelector('[data-testid=transcript-drawer]')).toBeNull()
+    )
+  })
+
+  it('⛔ 되돌릴 길은 서랍 안에 숨기지 않는다', async () => {
+    // 「전사 수정」을 찾으려고 먼저 다른 것을 열어야 하면 못 찾는다.
+    const { screen } = await approved()
+    await expect
+      .element(screen.getByRole('button', { name: '전사 수정' }))
+      .toBeInTheDocument()
+  })
+
+  it('⛔ 각주를 누르면 전사가 열리고 그 지점으로 간다', async () => {
+    // 각주는 인용문 한 줄만 보여준다. "정말 그렇게 말했나"는 앞뒤 맥락이
+    // 있어야 판단할 수 있고, 그건 전사문에만 있다.
+    const s = server(REVISION(), WITH_DOCUMENT)
+    const { screen } = await setup(s)
+    await screen.getByTestId('approve-transcript').click()
+    await vi.waitFor(() =>
+      expect(screen.container.querySelector('button[data-cite=seg_1]')).toBeTruthy()
+    )
+
+    const audio = screen.container.querySelector('audio') as HTMLAudioElement
+    await screen.getByRole('button', { name: /00:00:02부터 듣기/ }).first().click()
+
+    await expect
+      .element(screen.getByRole('dialog', { name: '전사 원문' }))
+      .toBeInTheDocument()
+    expect(audio.currentTime).toBeCloseTo(2.12, 2)
+  })
+
+  it('⛔ 열어도 편집기가 아니다 — 확정본은 고칠 수 없다', async () => {
+    const { screen } = await approved()
+    await screen.getByTestId('open-transcript').click()
+
+    await vi.waitFor(() =>
+      expect(screen.container.querySelector('[data-testid=transcript-drawer]')).toBeTruthy()
+    )
+    expect(screen.container.querySelectorAll('textarea').length).toBe(0)
   })
 })
 

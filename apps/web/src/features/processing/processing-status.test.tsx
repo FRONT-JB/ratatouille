@@ -20,6 +20,8 @@ const src = (over: Partial<SessionSource> = {}): SessionSource => ({
   captureMode: 'in_person',
   startedAt: null,
   job: null,
+  revisionState: null,
+  documentRunState: null,
   nextAction: null,
   ...over,
 })
@@ -64,13 +66,15 @@ describe('⛔ 어느 객체의 상태인지 화면에 드러난다', () => {
 
 describe('⛔ 미확정 문구를 확정된 것처럼 보여주지 않는다', () => {
   it('표시가 붙는다', async () => {
+    // ⚠️ 문구는 이제 계약 표에서 온다. 그래서 미확정 문구를 **주입**할 수 없고,
+    //    실제로 미확정인 상태를 써야 한다 — `documentRun.waiting_for_model`이
+    //    그렇다(technical-foundation이 상태 이름만 정했다).
     const s = await render(
       <ProcessingStatus
         source={src({
-          job: job({
-            jobState: 'transcribing',
-            phrase: phrase('모델 응답을 기다리는 중', { provisional: true }),
-          }),
+          job: job({ jobState: 'completed' }),
+          revisionState: 'transcript_approved',
+          documentRunState: 'waiting_for_model',
         })}
       />
     )

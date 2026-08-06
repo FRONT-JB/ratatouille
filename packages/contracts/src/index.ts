@@ -8,5 +8,7 @@
 export * from './state.ts'
 export * from './rules.ts'
 export * from './evidence.ts'
+export * from './citation.ts'
 export * from './manifest.ts'
 export * from './phrasing.ts'
+export * from './stage.ts'

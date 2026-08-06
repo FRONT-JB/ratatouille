@@ -158,6 +158,10 @@ export type NextActionKind =
   | 'start_transcription'
   | 'retry_transcription'
   | 'open_transcript_review'
+  | 'start_documentation'
+  // ⛔ 전사 재시도와 **다른** 조작이다. 같은 kind로 두면 화면이 엉뚱한 것을
+  //    다시 돌린다. 실제로 documentRun의 재시도가 `retry_transcription`이었다.
+  | 'retry_documentation'
   | 'open_document_review'
 
 export type NextAction = { kind: NextActionKind; label: string }
@@ -197,12 +201,22 @@ export function nextActionFor(ref: StateRef): NextAction | null {
       }
       return null
 
+    case 'transcriptRevision':
+      // ⛔ 확정한 뒤의 다음 조작은 「전사 교정하기」가 아니라 「AI 정리 시작」이다.
+      //    전사 job만 보면 이 구분이 사라지고, 확정된 회의가 영영 "교정 전"이 된다.
+      return ref.state === 'transcript_approved'
+        ? { kind: 'start_documentation', label: 'AI 정리 시작' }
+        : { kind: 'open_transcript_review', label: '전사 교정하기' }
+
     case 'documentRun':
       if (ref.state === 'proposed') {
         return { kind: 'open_document_review', label: '검수하기' }
       }
       if (ref.state === 'failed_retryable') {
-        return { kind: 'retry_transcription', label: '정리 다시 시도' }
+        return { kind: 'retry_documentation', label: '정리 다시 시도' }
+      }
+      if (ref.state === 'auth_required') {
+        return { kind: 'retry_documentation', label: '다시 시도' }
       }
       return null
 

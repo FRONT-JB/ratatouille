@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { meetingStage } from '@ratatouille/contracts'
 import { type FetchLike, type SessionSource, fetchSession, isProcessing } from './session'
 
 /**
@@ -19,21 +20,48 @@ export type MeetingListItem = {
   badge: string
 }
 
-/** 사이드바에 걸 짧은 상태말. 긴 문구는 페이지 B가 보여준다. */
+/**
+ * 사이드바에 걸 짧은 상태말. 긴 문구는 페이지 B가 보여준다.
+ *
+ * ⛔ **어느 단계인지는 계약이 정한다**(`meetingStage`). 여기서 다시 판정하면
+ *    서버와 갈라진다 — 실제로 갈라져서, 전사 job만 보던 이 함수가 **확정된
+ *    회의에도 「교정 전」**을 띄웠다. 여기서 정하는 것은 **말의 길이뿐**이다.
+ */
 export function badgeFor(s: SessionSource): string {
-  if (s.sourceState !== 'ready') return '수집 중'
-  if (!s.job) return '전사 전'
-  switch (s.job.jobState) {
-    case 'queued':
-      return '대기'
-    case 'transcribing':
-      return '전사 중'
-    case 'failed_retryable':
-      return '실패'
-    case 'completed':
-      // ⚠️ 교정·정리는 아직 없다. 전사까지가 끝이라는 뜻으로 읽히면 안 되므로
-      //    "교정 전"으로 둔다 — 다음에 할 일이 남았다는 표시다.
+  const stage = meetingStage({
+    sourceState: s.sourceState,
+    jobState: s.job?.jobState ?? null,
+    jobRetryable: s.job?.retryable ?? true,
+    revisionState: s.revisionState,
+    documentRunState: s.documentRunState,
+  })
+
+  switch (stage.machine) {
+    case 'source':
+      // ready인데 여기까지 왔다는 것은 전사를 아직 안 돌렸다는 뜻이다
+      return stage.state === 'ready' ? '전사 전' : '수집 중'
+
+    case 'transcriptionJob':
+      if (stage.state === 'queued') return '대기'
+      if (stage.state === 'transcribing') return '전사 중'
+      if (stage.state === 'failed_retryable') return '실패'
+      // ⚠️ 전사가 끝난 것을 "완료"로 부르지 않는다. 교정이 남았다.
       return '교정 전'
+
+    case 'transcriptRevision':
+      return stage.state === 'transcript_approved' ? '정리 전' : '교정 전'
+
+    case 'documentRun':
+      if (stage.state === 'queued') return '정리 대기'
+      if (stage.state === 'documenting') return '정리 중'
+      if (stage.state === 'waiting_for_model') return '모델 대기'
+      if (stage.state === 'auth_required') return '로그인 필요'
+      if (stage.state === 'failed_retryable') return '정리 실패'
+      // ⚠️ `proposed`도 "완료"가 아니다. 사람이 검수해야 `current`가 된다.
+      return '검수 대기'
+
+    default:
+      return '확인 필요'
   }
 }
 

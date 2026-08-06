@@ -221,6 +221,121 @@ describe('⛔ evidence 검증을 통과해야 proposed가 된다', () => {
   })
 })
 
+describe('⛔ 근거는 문장 안 마커에서 온다', () => {
+  // 항목 끝에 근거를 몰아 달면 `[1][2]…[10]`이 되어 어느 근거가 어느 주장을
+  // 받치는지 알 수 없다. 검수는 "이 문장이 맞나"를 묻는 일이다.
+
+  it('본문 마커가 evidence로 모인다', async () => {
+    modelOutput = JSON.stringify({
+      summary: { text: '오픈을 연기했고[seg_0] 날짜를 정했다[seg_1].' },
+      decisions: [],
+      tasks: [],
+    })
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    expect(run.state).toBe('proposed')
+    expect(run.proposal!.summary.evidence).toEqual(['seg_0', 'seg_1'])
+    expect(run.proposal!.evidence.map((e) => e.id)).toEqual(['seg_0', 'seg_1'])
+  })
+
+  it('⛔ 본문은 마커를 그대로 지닌다 — 화면이 각주를 그릴 위치다', async () => {
+    modelOutput = JSON.stringify({
+      summary: { text: '오픈을 연기했다[seg_0].' },
+      decisions: [],
+      tasks: [],
+    })
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    expect(run.proposal!.summary.text).toContain('[seg_0]')
+  })
+
+  it('⛔ 각주 번호 순서는 읽는 순서다 — 요약 → 결정 → 할 일', async () => {
+    modelOutput = JSON.stringify({
+      summary: { text: '요약[seg_1].' },
+      decisions: [{ what: '결정[seg_0].' }],
+      tasks: [],
+    })
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    // seg_1이 먼저 읽히므로 1번이다. 세그먼트 순서가 아니라 인용 순서.
+    expect(run.proposal!.evidence.map((e) => e.id)).toEqual(['seg_1', 'seg_0'])
+  })
+
+  it('마커를 빠뜨리고 배열만 줘도 근거가 사라지지 않는다', async () => {
+    // 모델이 형식을 어겨도 근거를 통째로 잃지 않는다. 마커가 앞 번호를 갖는다.
+    modelOutput = JSON.stringify({
+      summary: { text: '요약[seg_1].', evidence: ['seg_0', 'seg_1'] },
+      decisions: [],
+      tasks: [],
+    })
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    expect(run.proposal!.summary.evidence).toEqual(['seg_1', 'seg_0'])
+  })
+
+  it('⛔ 없는 ID를 문장에 박아도 막힌다 — 환각', async () => {
+    modelOutput = JSON.stringify({
+      summary: { text: '지어낸 근거[seg_999].' },
+      decisions: [],
+      tasks: [],
+    })
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    expect(run.state).toBe('failed_retryable')
+    expect(run.violations.some((v) => v.kind === 'unknown_segment')).toBe(true)
+  })
+})
+
+describe('⛔ Action Item의 담당자와 기한', () => {
+  // 프롬프트는 `owner`·`due`를 요구하는데 파서가 버리고 있었다. 2차 실측에서
+  // 기한 정확도가 4/4였는데 그 값이 화면까지 오지 못했다.
+  //
+  // ⚠️ 화자 분리를 접었으므로 "제가 하겠습니다"류는 담당자를 알 수 없다.
+  //    그건 `null`로 남고 사람이 지정한다 — 지어내지 않는다.
+
+  const withTasks = (owner: unknown, due: unknown) =>
+    JSON.stringify({
+      summary: { text: 'x', evidence: ['seg_0'] },
+      decisions: [],
+      tasks: [{ action: '계약서 검토', owner, due, evidence: ['seg_1'] }],
+    })
+
+  it('모델이 준 담당자와 기한이 보존된다', async () => {
+    modelOutput = withTasks('이한결', '3월 16일')
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    expect(run.proposal!.tasks[0]).toMatchObject({
+      action: '계약서 검토',
+      owner: '이한결',
+      due: '3월 16일',
+    })
+  })
+
+  it('⛔ `미입력`은 문자열이 아니라 null이다 — 그런 이름의 사람이 없다', async () => {
+    modelOutput = withTasks('미입력', '미입력')
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    expect(run.proposal!.tasks[0]!.owner).toBeNull()
+    expect(run.proposal!.tasks[0]!.due).toBeNull()
+  })
+
+  it('아예 없으면 null이다 — 빈 문자열로 두지 않는다', async () => {
+    modelOutput = withTasks(undefined, undefined)
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    expect(run.proposal!.tasks[0]!.owner).toBeNull()
+    expect(run.proposal!.tasks[0]!.due).toBeNull()
+  })
+})
+
 describe('⛔ 불변 이력 — 11절', () => {
   it('input.json이 ID와 hash로만 참조한다', async () => {
     await withRevision()

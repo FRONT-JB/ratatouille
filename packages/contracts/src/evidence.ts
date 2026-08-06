@@ -25,10 +25,31 @@ export type EvidenceEntry = {
   quote: string
 }
 
+/**
+ * 화면의 `Action Item`. 내부 entity 이름은 `tasks`다.
+ *
+ * ⛔ **담당자와 기한은 `null`일 수 있고, 그것이 정상이다.**
+ *    회의에서 지목되지 않았으면 지어내지 않는다. 특히 화자 분리를 접었으므로
+ *    "제가 하겠습니다"류는 누가 말했는지 알 수 없다 — 사람이 지정한다.
+ *
+ * ⛔ 없음을 `'미입력'` 문자열로 저장하지 않는다. 그러면 그런 이름의 담당자와
+ *    구분되지 않고, "담당자가 정해졌는가"를 코드가 물을 수 없게 된다.
+ *    화면에 보이는 말은 `UNSET_LABEL`이고, 데이터는 `null`이다.
+ */
+export type ProposedTask = {
+  action: string
+  owner: string | null
+  due: string | null
+  evidence: string[]
+}
+
+/** 비어 있음을 사람에게 보여주는 말. 프롬프트와 화면이 같은 단어를 쓴다 */
+export const UNSET_LABEL = '미입력'
+
 export type DocumentProposal = {
   summary: { text: string; evidence: string[] }
   decisions: Array<{ what: string; evidence: string[] }>
-  tasks: Array<{ action: string; evidence: string[] }>
+  tasks: ProposedTask[]
   evidence: EvidenceEntry[]
 }
 

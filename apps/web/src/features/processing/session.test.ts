@@ -19,6 +19,8 @@ const src = (over: Partial<SessionSource> = {}): SessionSource => ({
   captureMode: 'in_person',
   startedAt: '2026-08-06T10:00:00+09:00',
   job: null,
+  revisionState: null,
+  documentRunState: null,
   nextAction: null,
   ...over,
 })
@@ -108,6 +110,28 @@ describe('⛔ 대표 상태가 어느 머신의 것인지 밝힌다', () => {
 
   it('문구를 함께 준다 — 화면이 지어내지 않는다', () => {
     expect(primaryStatus(src()).phrase.label).toBe('원본 준비됨')
+  })
+
+  it('⛔ 확정한 뒤에는 전사 job의 상태가 아니다', () => {
+    // job은 확정 후에도 영원히 `completed`다. 그것만 보면 상세 화면이
+    // 계속 "전사 완료 / 전사 교정하기"를 보여준다.
+    const p = primaryStatus(
+      src({ job: job({ jobState: 'completed' }), revisionState: 'transcript_approved' })
+    )
+    expect(p.machine).toBe('transcriptRevision')
+    expect(p.phrase.label).toBe('전사 확정됨')
+  })
+
+  it('정리 결과가 있으면 documentRun의 상태다', () => {
+    const p = primaryStatus(
+      src({
+        job: job({ jobState: 'completed' }),
+        revisionState: 'transcript_approved',
+        documentRunState: 'proposed',
+      })
+    )
+    expect(p.machine).toBe('documentRun')
+    expect(p.phrase.label).toBe('검수 대기')
   })
 })
 

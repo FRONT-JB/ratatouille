@@ -14,7 +14,9 @@ import {
   type DocumentProposal,
   type EvidenceViolation,
   type TranscriptSegment,
+  UNSET_LABEL,
   canPromoteToProposed,
+  citedIdsIn,
   describeViolation,
   verifyEvidence,
 } from '@ratatouille/contracts'
@@ -224,15 +226,21 @@ function normalize(parsed: unknown): DocumentProposal {
   }
 
   return {
-    summary: { text: summary.text, evidence: strings(summary.evidence) },
-    decisions: list(p.decisions).map((d) => ({
-      what: String((d as Record<string, unknown>).what ?? ''),
-      evidence: strings((d as Record<string, unknown>).evidence),
-    })),
-    tasks: list(p.tasks).map((t) => ({
-      action: String((t as Record<string, unknown>).action ?? ''),
-      evidence: strings((t as Record<string, unknown>).evidence),
-    })),
+    summary: { text: summary.text, evidence: cites(summary.text, summary.evidence) },
+    decisions: list(p.decisions).map((d) => {
+      const what = String((d as Record<string, unknown>).what ?? '')
+      return { what, evidence: cites(what, (d as Record<string, unknown>).evidence) }
+    }),
+    tasks: list(p.tasks).map((t) => {
+      const r = t as Record<string, unknown>
+      const action = String(r.action ?? '')
+      return {
+        action,
+        owner: optional(r.owner),
+        due: optional(r.due),
+        evidence: cites(action, r.evidence),
+      }
+    }),
     evidence: list(p.evidence).map((e) => {
       const r = e as Record<string, unknown>
       return {
@@ -294,6 +302,42 @@ export function fillEvidence(
       }
     }),
   }
+}
+
+/**
+ * 담당자·기한처럼 **없을 수 있는** 값.
+ *
+ * ⛔ 프롬프트가 "없으면 `미입력`"이라고 시켰으므로 모델은 그 단어를 그대로
+ *    보낸다. 그것을 문자열로 저장하면 그런 이름의 담당자와 구분되지 않는다.
+ *    없음은 `null`이다.
+ */
+function optional(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const s = v.trim()
+  if (s === '' || s === UNSET_LABEL || s === '없음' || s === '미정') return null
+  return s
+}
+
+/**
+ * 이 본문이 인용한 세그먼트 ID.
+ *
+ * ⛔ **본문 안 마커가 정식 출처다.** 프롬프트가 `[seg_33]`을 문장 안에 넣으라고
+ *    시키고, 화면은 그 자리에 각주 번호를 그린다. 여기서 뽑은 순서가 곧 각주
+ *    번호 순서가 된다.
+ *
+ * 예전 형식(`evidence: ["seg_7"]`)도 받아준다. 모델이 마커를 빠뜨리고 배열만
+ * 주는 경우가 있고, 그때 근거를 통째로 잃는 것보다는 항목 끝에 붙는 편이 낫다.
+ * 마커가 있는 것이 먼저 오고, 배열에만 있는 것이 뒤에 붙는다.
+ */
+function cites(text: string, given: unknown): string[] {
+  const out = citedIdsIn(text)
+  const seen = new Set(out)
+  for (const id of strings(given)) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
 }
 
 function list(v: unknown): unknown[] {

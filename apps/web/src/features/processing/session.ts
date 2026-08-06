@@ -9,6 +9,15 @@
  *    갈라진 쪽이 화면이라 사용자가 먼저 본다.
  */
 
+import {
+  type DocumentRunState,
+  type MachineName,
+  type StateRef,
+  type TranscriptRevisionState,
+  describeState,
+  meetingStage,
+} from '@ratatouille/contracts'
+
 export type Phrase = {
   label: string
   detail: string | null
@@ -50,6 +59,13 @@ export type SessionSource = {
   captureMode: 'in_person' | 'online' | null
   startedAt: string | null
   job: JobView | null
+  /*
+   * ⛔ 교정·정리 상태를 job과 **따로** 받는다. 전사 job은 확정한 뒤에도
+   *    영원히 `completed`다. job만 보면 화면은 확정된 회의도 "교정 전"으로
+   *    읽고, 실제로 그랬다.
+   */
+  revisionState: TranscriptRevisionState | null
+  documentRunState: DocumentRunState | null
   nextAction: NextAction | null
 }
 
@@ -82,7 +98,14 @@ export function findSource(session: Session, sourceId: string): SessionSource | 
 export function isProcessing(s: SessionSource): boolean {
   if (s.sourceState !== 'ready') return true
   if (!s.job) return true
-  return s.job.jobState === 'queued' || s.job.jobState === 'transcribing'
+  if (s.job.jobState === 'queued' || s.job.jobState === 'transcribing') return true
+  // ⛔ AI 정리가 도는 동안에도 처리 중이다. 이게 빠지면 사이드바가 폴링을
+  //    멈춰서 "정리 중"이 끝나도 화면이 그대로 남는다.
+  return (
+    s.documentRunState === 'queued' ||
+    s.documentRunState === 'documenting' ||
+    s.documentRunState === 'waiting_for_model'
+  )
 }
 
 /** 전사 교정으로 넘어가도 되는지 */
@@ -98,12 +121,31 @@ export function canReviewTranscript(s: SessionSource): boolean {
  *    되짚을 수 없다.
  */
 export function primaryStatus(s: SessionSource): {
-  machine: 'source' | 'transcriptionJob'
+  machine: MachineName
   state: string
   phrase: Phrase
 } {
-  if (s.sourceState !== 'ready' || !s.job) {
-    return { machine: 'source', state: s.sourceState, phrase: s.sourcePhrase }
-  }
-  return { machine: 'transcriptionJob', state: s.job.jobState, phrase: s.job.phrase }
+  const stage = stageOf(s)
+  /*
+   * ⛔ 문구는 **계약 표**에서 온다(`describeState`). 서버도 같은 표를 쓰므로
+   *    화면이 지어내는 것이 아니다 — 같은 원본을 함께 읽는 것이다.
+   *    화면이 자기 문구를 따로 들면 그때 갈라진다.
+   */
+  return { machine: stage.machine, state: stage.state, phrase: describeState(stage) }
+}
+
+/**
+ * 이 회의가 지금 어느 단계인가.
+ *
+ * ⛔ **판정은 계약이 한다**(`meetingStage`). 예전에는 이 파일이 전사 job에서
+ *    멈췄고, 그래서 확정된 회의도 "전사 완료 / 전사 교정하기"로 남았다.
+ */
+export function stageOf(s: SessionSource): StateRef {
+  return meetingStage({
+    sourceState: s.sourceState,
+    jobState: s.job?.jobState ?? null,
+    jobRetryable: s.job?.retryable ?? true,
+    revisionState: s.revisionState,
+    documentRunState: s.documentRunState,
+  })
 }
