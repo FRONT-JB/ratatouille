@@ -78,6 +78,7 @@ const setup = async () =>
       onOpenTranscript={vi.fn()}
       onRetry={vi.fn()}
       onReview={vi.fn()}
+      onEdit={vi.fn()}
     />
   )
 

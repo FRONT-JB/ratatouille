@@ -18,8 +18,13 @@ import {
   type DocumentState,
   type EvidenceViolation,
   type TranscriptSegment,
+  type ProposalEdit,
   type ReviewBlocker,
   type ReviewSection,
+  applyEdit,
+  editedSection,
+  describeViolation,
+  verifyEvidence,
   RuleViolationError,
   type RubricVerdict,
   type SectionReviewState,
@@ -37,7 +42,12 @@ import { meetingNotePath, renderMeetingNote } from './markdown.ts'
 import type { RunArtifactStore } from '../runs/store.ts'
 import type { SourceRepository } from '../sources/repository.ts'
 import { formatTimestamp } from '../transcription/runner.ts'
-import { DocumentFailed, type DocumentRunner } from './runner.ts'
+import {
+  DocumentFailed,
+  type DocumentRunner,
+  fillEvidence,
+  recite,
+} from './runner.ts'
 
 export type DocumentRun = {
   id: string
@@ -254,6 +264,72 @@ export class DocumentQueue {
     })
   }
 
+/**
+   * 사람이 결과를 고친다.
+   *
+   * ⛔ **고친 뒤에도 근거를 다시 검증한다.** 사람도 없는 세그먼트를 인용할 수
+   *    있다 — 붙여넣다 번호가 어긋나는 것이 흔하다. 환각을 막는 규칙은 누가
+   *    쓴 글이냐를 따지지 않는다.
+   *
+   * ⛔ **거절되면 아무것도 바뀌지 않는다.** 새 객체로 만들어 검증한 뒤에만
+   *    갈아끼운다. 반쯤 적용된 상태가 남으면 무엇이 확정된 것인지 알 수 없다.
+   */
+  async edit(runId: string, edit: ProposalEdit): Promise<DocumentRun> {
+    const run = this.runs.get(runId)
+    if (!run) throw new DocumentRunNotFoundError(runId)
+    if (!run.proposal) {
+      throw new RuleViolationError(
+        'document-has-no-proposal',
+        '아직 정리 결과가 없습니다.'
+      )
+    }
+    if (run.documentState === 'current') {
+      throw new RuleViolationError(
+        'document-already-current',
+        '이미 확정된 문서입니다. 되돌린 뒤에 고쳐 주세요.'
+      )
+    }
+
+    const rev = this.deps.revisions.current(run.sourceId)
+    const segments: TranscriptSegment[] = (rev?.segments ?? []).map((s) => ({
+      id: s.id,
+      timestamp: formatTimestamp(s.startMs),
+      text: s.text,
+    }))
+
+    /*
+     * ⛔ **편집 규칙은 계약이 갖는다**(`applyEdit`). 서버가 따로 판정하면
+     *    같은 규칙이 두 곳에 생기고 반드시 갈라진다.
+     *
+     * 그 위에 서버가 하는 일은 둘이다: 본문에서 근거를 다시 뽑고(`recite`),
+     * 전사문에 **실재하는** 세그먼트인지 검증한다. 계약은 전사문을 모른다.
+     */
+    const next = fillEvidence(
+      recite(applyEdit(run.proposal, edit, new Set(segments.map((s) => s.id)))),
+      segments
+    )
+    const violations = verifyEvidence(next, segments)
+    if (violations.length > 0) {
+      throw new RuleViolationError(
+        'edit-cites-unknown-segment',
+        violations.map(describeViolation).join(' / ')
+      )
+    }
+
+    run.proposal = next
+    /*
+     * ⛔ 회의 내용을 고쳐도 **요약** 검수 상태가 움직인다. 둘은 같은 내용의
+     *    긴 형태와 짧은 형태라 한 검수 상태를 나눠 갖는다.
+     */
+    const section = editedSection(edit)
+    run.review = {
+      ...run.review,
+      [section]: reviewAfterEdit(run.review[section]),
+    }
+    await this.persist(run)
+    return run
+  }
+
   /** 무엇이 확정을 막고 있나 */
   blockers(runId: string): ReviewBlocker[] {
     const run = this.runs.get(runId)
@@ -315,6 +391,28 @@ export class DocumentQueue {
         existing: existing?.frontmatter,
       })
     )
+  }
+
+  /**
+   * 확정을 되돌린다.
+   *
+   * ⛔ **이 길이 없으면 막다른 골목이다.** 확정한 뒤에는 편집도 검수도 막히는데,
+   *    되돌릴 방법이 없으면 오타 하나 고치려고 모델을 다시 돌려야 한다.
+   *    실제로 오류 문구가 "되돌린 뒤에 고쳐 주세요"라고 하면서 그 길이 없었다.
+   *
+   * ⛔ `current → reviewing`으로 바로 가지 않는다. 상태 머신이 `stale`을
+   *    거치게 되어 있고, 그건 맞는 말이다 — 고칠 참이면 그 확정본은 더 이상
+   *    최신이 아니다.
+   */
+  async reopen(runId: string): Promise<DocumentRun> {
+    const run = this.runs.get(runId)
+    if (!run) throw new DocumentRunNotFoundError(runId)
+    if (run.documentState !== 'current') return run
+
+    const stale = transition('document', 'current', 'stale') as DocumentState
+    run.documentState = transition('document', stale, 'reviewing') as DocumentState
+    await this.persist(run)
+    return run
   }
 
   get(runId: string): DocumentRun | null {

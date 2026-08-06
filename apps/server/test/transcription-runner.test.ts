@@ -185,10 +185,20 @@ describe('실패 분류 — 재시도가 의미 있는가', () => {
 // 실제 전사. whisper-cli · ffmpeg · 모델이 있어야 돈다.
 // ────────────────────────────────────────────────────────────────
 
-const MODEL = path.resolve(
-  import.meta.dirname,
-  '../../../.experiments/models/ggml-large-v3-turbo.bin'
-)
+/*
+ * ⛔ **모델을 여러 자리에서 찾는다.** 예전에는 `.experiments/models/` 하나만
+ *    봤는데, 모델이 앱과 같은 `.data/models/`로 옮겨가면서 이 품질 게이트가
+ *    **조용히 꺼져 있었다.** 실제 전사 테스트 6건이 skip으로 넘어갔고
+ *    전체 결과는 초록이었다 — 꺼진 게이트가 통과한 게이트처럼 보였다.
+ *
+ * 앱이 쓰는 경로(`runtime.ts`의 `dataRoot/models`)를 **먼저** 본다.
+ */
+const MODEL_CANDIDATES = [
+  '../../../.data/models/ggml-large-v3-turbo.bin',
+  '../../../.experiments/models/ggml-large-v3-turbo.bin',
+].map((rel) => path.resolve(import.meta.dirname, rel))
+
+const MODEL = MODEL_CANDIDATES.find((p) => existsSync(p)) ?? MODEL_CANDIDATES[0]!
 const AUDIO = path.resolve(import.meta.dirname, 'fixtures/short-ko.wav')
 const canRunReal = existsSync(MODEL) && existsSync(AUDIO)
 

@@ -94,7 +94,8 @@ const setup = async (
   view: DocumentView | null = NONE,
   onSeek = vi.fn(),
   onPlay = vi.fn(),
-  onReview = vi.fn()
+  onReview = vi.fn(),
+  onEdit = vi.fn()
 ) => {
   const screen = await render(
     <DocumentResult
@@ -107,9 +108,10 @@ const setup = async (
       onOpenTranscript={vi.fn()}
       onRetry={vi.fn()}
       onReview={onReview}
+      onEdit={onEdit}
     />
   )
-  return { screen, onSeek, onPlay, onReview }
+  return { screen, onSeek, onPlay, onReview, onEdit }
 }
 
 describe('아직 만들지 않았을 때', () => {
@@ -217,19 +219,98 @@ describe('⛔ 각주는 그 문장에 붙어 있다', () => {
 })
 
 describe('Action Item', () => {
+  const input = (screen: { container: HTMLElement }, name: string) =>
+    screen.container.querySelector<HTMLInputElement>(`[aria-label="${name}"]`)!
+
   it('담당자와 기한을 보여준다 — 실측에서 기한 정확도가 4/4였다', async () => {
     const { screen } = await setup(PROPOSED)
-    const item = screen.container.querySelector('[data-task="0"]')!
-    expect(item.textContent).toContain('이한결')
-    expect(item.textContent).toContain('3월 2일')
+    expect(input(screen, 'Action Item 1 담당자').value).toBe('이한결')
+    expect(input(screen, 'Action Item 1 기한').value).toBe('3월 2일')
   })
 
-  it('⛔ 없는 담당자를 지어내지 않는다 — 미입력으로 남는다', async () => {
+  it('⛔ 없는 담당자를 지어내지 않는다 — 빈 칸으로 남는다', async () => {
     // 화자 분리를 접었으므로 "제가 하겠습니다"는 누가 말했는지 알 수 없다.
+    const el = input(await setup(PROPOSED).then((r) => r.screen), 'Action Item 2 담당자')
+    expect(el.value).toBe('')
+    expect(el.placeholder).toBe('미입력')
+  })
+
+  it('담당자를 채우면 저장한다', async () => {
+    const { screen, onEdit } = await setup(PROPOSED)
+    const el = screen.getByRole('textbox', { name: 'Action Item 2 담당자' })
+    await el.fill('지영')
+    // ⛔ 타이핑 도중이 아니라 칸을 떠날 때 보낸다 — 이름은 짧아서 중간값이 저장된다
+    await screen.getByRole('textbox', { name: 'Action Item 1 담당자' }).click()
+
+    expect(onEdit).toHaveBeenCalledWith({
+      section: 'tasks',
+      kind: 'owner',
+      index: 1,
+      value: '지영',
+    })
+  })
+
+  it('⛔ 확정된 문서에서는 고칠 수 없다', async () => {
+    const { screen } = await setup({ ...PROPOSED, documentState: 'current' })
+    expect(
+      screen.container.querySelector('[aria-label="Action Item 1 담당자"]')
+    ).toBeNull()
+  })
+})
+
+describe('⛔ 고칠 수 없는 검수는 반쪽이다', () => {
+  it('요약을 고칠 수 있다', async () => {
+    const { screen, onEdit } = await setup(PROPOSED)
+    await screen.getByTestId('tab-summary').click()
+    await screen.getByRole('button', { name: '요약 고치기' }).click()
+    await screen.getByRole('textbox', { name: '요약 내용' }).fill('고친 요약[seg_0].')
+    await screen.getByRole('button', { name: '저장' }).click()
+
+    expect(onEdit).toHaveBeenCalledWith({
+      section: 'summary',
+      kind: 'text',
+      text: '고친 요약[seg_0].',
+    })
+  })
+
+  it('⛔ 편집기에 근거 마커가 그대로 보인다 — 감추면 모르고 지운다', async () => {
     const { screen } = await setup(PROPOSED)
-    expect(screen.container.querySelector('[data-task="1"]')!.textContent).toContain(
-      '미입력'
-    )
+    await screen.getByTestId('tab-summary').click()
+    await screen.getByRole('button', { name: '요약 고치기' }).click()
+
+    const box = screen.container.querySelector<HTMLTextAreaElement>(
+      '[aria-label="요약 내용"]'
+    )!
+    expect(box.value).toContain('[seg_0]')
+  })
+
+  it('결정을 지울 수 있다 — 결함 B의 시정 수단이다', async () => {
+    const { screen, onEdit } = await setup(PROPOSED)
+    await screen.getByRole('button', { name: '결정 1 지우기' }).click()
+
+    expect(onEdit).toHaveBeenCalledWith({
+      section: 'decisions',
+      kind: 'remove',
+      index: 0,
+    })
+  })
+
+  it('취소하면 원래대로 돌아간다', async () => {
+    const { screen, onEdit } = await setup(PROPOSED)
+    await screen.getByTestId('tab-summary').click()
+    await screen.getByRole('button', { name: '요약 고치기' }).click()
+    await screen.getByRole('textbox', { name: '요약 내용' }).fill('버릴 글[seg_0].')
+    await screen.getByRole('button', { name: '취소' }).click()
+
+    expect(onEdit).not.toHaveBeenCalled()
+    expect(screen.container.textContent).toContain('결제 모듈 오픈을 연기하고')
+  })
+
+  it('⛔ 확정된 문서에는 고치기 버튼이 없다', async () => {
+    const { screen } = await setup({ ...PROPOSED, documentState: 'current' })
+    expect(
+      screen.container.querySelector('[aria-label="결정 1 고치기"]')
+    ).toBeNull()
   })
 })
 
@@ -422,6 +503,7 @@ describe('⛔ 모델 장애가 화면에 드러난다', () => {
         onOpenTranscript={vi.fn()}
         onRetry={onRetry}
         onReview={vi.fn()}
+        onEdit={vi.fn()}
       />
     )
     await screen.getByRole('button', { name: '다시 시도' }).click()

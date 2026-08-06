@@ -257,6 +257,33 @@ function normalize(parsed: unknown): DocumentProposal {
 }
 
 /**
+ * 본문에서 근거를 **다시 뽑는다.**
+ *
+ * ⛔ 사람이 문장을 고치면 인용도 같이 바뀐다. 본문만 바꾸고 `evidence` 배열을
+ *    그대로 두면 «본문에 없는 근거»와 «근거 없는 문장»이 동시에 생긴다.
+ *    실제로 그렇게 났다 — 요약을 seg_1로 바꿨는데 배열은 seg_0이었다.
+ *
+ * 모델이 처음 줄 때는 `normalize`가 같은 일을 한다. 여기는 **편집 경로**다.
+ */
+export function recite(proposal: DocumentProposal): DocumentProposal {
+  return {
+    ...proposal,
+    summary: {
+      ...proposal.summary,
+      evidence: citedIdsIn(proposal.summary.text),
+    },
+    decisions: proposal.decisions.map((d) => ({
+      ...d,
+      evidence: citedIdsIn(d.what),
+    })),
+    tasks: proposal.tasks.map((t) => ({
+      ...t,
+      evidence: citedIdsIn(t.action),
+    })),
+  }
+}
+
+/**
  * evidence 배열을 **서버가 채운다.**
  *
  * ⛔ 예전에는 모델에게 id·시각·인용문을 전부 받았고, 실측에서 그 셋이 전부

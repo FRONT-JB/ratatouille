@@ -420,6 +420,195 @@ describe('⛔ 사람이 검수해야 current가 된다', () => {
   })
 })
 
+describe('⛔ 사람이 결과를 고칠 수 있다', () => {
+  const NARRATIVE = JSON.stringify({
+    narrative: [{ heading: '오픈 일정', body: '연기했다[seg_0].' }],
+    summary: { text: '오픈을 미뤘다[seg_0].' },
+    decisions: [{ what: '3월 16일로 연기[seg_1].' }],
+    tasks: [{ action: '공지한다[seg_1].', owner: '미입력', due: '미입력' }],
+  })
+
+  const proposed = async () => {
+    modelOutput = NARRATIVE
+    await withRevision()
+    return queue.enqueue('src_01')
+  }
+
+  it('요약을 고치면 내용이 바뀐다', async () => {
+    const run = await proposed()
+    const after = await queue.edit(run.id, {
+      section: 'summary',
+      kind: 'text',
+      text: '사람이 고친 요약[seg_0].',
+    })
+    expect(after.proposal!.summary.text).toBe('사람이 고친 요약[seg_0].')
+  })
+
+  it('⛔ 고치면 그 section이 edited가 된다 — 확인한 것으로 친다', async () => {
+    const run = await proposed()
+    const after = await queue.edit(run.id, { section: 'summary', kind: 'text', text: '고침[seg_0].' })
+    expect(after.review.summary.state).toBe('edited')
+  })
+
+  it('⛔ 회의 내용을 고쳐도 요약 검수 상태가 움직인다 — 둘은 한 묶음이다', async () => {
+    const run = await proposed()
+    const after = await queue.edit(run.id, {
+      section: 'summary',
+      kind: 'narrative',
+      index: 0,
+      body: '사람이 다시 쓴 본문[seg_1].',
+    })
+    expect(after.proposal!.narrative![0]!.body).toBe('사람이 다시 쓴 본문[seg_1].')
+    expect(after.review.summary.state).toBe('edited')
+  })
+
+  it('결정과 할 일도 고칠 수 있다', async () => {
+    const run = await proposed()
+    let after = await queue.edit(run.id, {
+      section: 'decisions',
+      kind: 'text',
+      index: 0,
+      text: '고친 결정[seg_0].',
+    })
+    expect(after.proposal!.decisions[0]!.what).toBe('고친 결정[seg_0].')
+    expect(after.review.decisions.state).toBe('edited')
+
+    after = await queue.edit(run.id, {
+      section: 'tasks',
+      kind: 'owner',
+      index: 0,
+      value: '이한결',
+    })
+    after = await queue.edit(run.id, {
+      section: 'tasks',
+      kind: 'due',
+      index: 0,
+      value: '3월 2일',
+    })
+    expect(after.proposal!.tasks[0]).toMatchObject({
+      owner: '이한결',
+      due: '3월 2일',
+    })
+  })
+
+  it('⛔ 담당자를 비우면 null이다 — 「미입력」이라는 이름의 사람은 없다', async () => {
+    const run = await proposed()
+    const after = await queue.edit(run.id, {
+      section: 'tasks',
+      kind: 'owner',
+      index: 0,
+      value: '',
+    })
+    expect(after.proposal!.tasks[0]!.owner).toBeNull()
+  })
+
+  it('⛔ 고친 뒤에도 근거가 다시 채워진다', async () => {
+    const run = await proposed()
+    // seg_1만 인용하도록 요약을 고친다
+    const after = await queue.edit(run.id, {
+      section: 'summary',
+      kind: 'text',
+      text: '다른 근거로 바꿨다[seg_1].',
+    })
+    expect(after.proposal!.summary.evidence).toEqual(['seg_1'])
+    expect(after.proposal!.evidence.map((e) => e.id)).toContain('seg_1')
+  })
+
+  it('⛔ 모델이 인용하지 않은 발언도 근거로 삼을 수 있다', async () => {
+    // 사람이 전사문을 읽다가 더 나은 발언을 찾을 수 있다. 「이미 인용된 것」
+    // 안으로 좁히면 그 사람은 가리킬 수단이 없다.
+    modelOutput = JSON.stringify({
+      summary: { text: 'seg_0만 인용했다[seg_0].' },
+      decisions: [],
+      tasks: [],
+    })
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    expect(run.proposal!.evidence.map((e) => e.id)).toEqual(['seg_0'])
+
+    const after = await queue.edit(run.id, {
+      section: 'summary',
+      kind: 'text',
+      text: '전사문에서 찾은 다른 발언[seg_1].',
+    })
+    expect(after.proposal!.evidence.map((e) => e.id)).toEqual(['seg_1'])
+  })
+
+  it('⛔ 없는 세그먼트를 인용하면 거절한다 — 사람도 지어낼 수 있다', async () => {
+    const run = await proposed()
+    await expect(
+      queue.edit(run.id, {
+        section: 'summary',
+        kind: 'text',
+        text: '지어낸 근거[seg_999].',
+      })
+    ).rejects.toThrow(RuleViolationError)
+  })
+
+  it('⛔ 거절되면 아무것도 바뀌지 않는다', async () => {
+    const run = await proposed()
+    const before = run.proposal!.summary.text
+    await queue
+      .edit(run.id, {
+        section: 'summary',
+        kind: 'text',
+        text: '지어낸 근거[seg_999].',
+      })
+      .catch(() => undefined)
+    expect(queue.get(run.id)!.proposal!.summary.text).toBe(before)
+    expect(queue.get(run.id)!.review.summary.state).toBe('unreviewed')
+  })
+
+  it('⛔ 확정된 문서는 고칠 수 없다 — 되돌린 뒤에 고친다', async () => {
+    const run = await proposed()
+    for (const s of ['summary', 'decisions', 'tasks', 'evidence'] as const) {
+      await queue.review(run.id, s, { state: 'accepted' })
+    }
+    await queue.promote(run.id)
+
+    await expect(
+      queue.edit(run.id, {
+        section: 'summary',
+        kind: 'text',
+        text: '몰래 고침[seg_0].',
+      })
+    ).rejects.toThrow(RuleViolationError)
+  })
+
+  it('없는 항목 번호는 거절한다', async () => {
+    const run = await proposed()
+    await expect(
+      queue.edit(run.id, {
+        section: 'decisions',
+        kind: 'text',
+        index: 9,
+        text: 'x[seg_0]',
+      })
+    ).rejects.toThrow()
+  })
+})
+
+describe('⛔ 다시 정리해도 사람 편집이 사라지지 않는다 — Test 6.5', () => {
+  it('새 실행은 별개다. 이전 실행의 편집이 그대로 남는다', async () => {
+    await withRevision()
+    const first = await queue.enqueue('src_01')
+    await queue.edit(first.id, {
+      section: 'summary',
+      kind: 'text',
+      text: '사람이 고친 요약[seg_0].',
+    })
+
+    const second = await queue.enqueue('src_01')
+
+    expect(second.id).not.toBe(first.id)
+    // ⛔ 이전 실행을 덮지 않는다 — 사람이 쓴 문장이 사라지면 되돌릴 길이 없다
+    expect(queue.get(first.id)!.proposal!.summary.text).toBe('사람이 고친 요약[seg_0].')
+    expect(queue.get(first.id)!.review.summary.state).toBe('edited')
+    // 새 실행은 아무도 안 본 상태로 시작한다
+    expect(second.review.summary.state).toBe('unreviewed')
+  })
+})
+
 describe('⛔ 확정하면 vault에 남는다 — 9절', () => {
   const acceptAll = async (runId: string) => {
     for (const s of ['summary', 'decisions', 'evidence'] as const) {

@@ -157,6 +157,68 @@ describe('검수 상태 갱신', () => {
   })
 })
 
+const editContent = (body: unknown) =>
+  app.request('/api/sources/src_01/document/content', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json' },
+  })
+
+describe('결과 편집', () => {
+  it('요약을 고치면 반영되고 edited가 된다', async () => {
+    const res = await editContent({
+      runId,
+      section: 'summary',
+      kind: 'text',
+      text: '사람이 고쳤다[seg_0].',
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      proposal: { summary: { text: string } }
+      review: Record<'summary', { state: string }>
+    }
+    expect(body.proposal.summary.text).toBe('사람이 고쳤다[seg_0].')
+    expect(body.review.summary.state).toBe('edited')
+  })
+
+  it('⛔ 없는 발언을 인용하면 409다', async () => {
+    const res = await editContent({
+      runId,
+      section: 'summary',
+      kind: 'text',
+      text: '지어냈다[seg_999].',
+    })
+    expect(res.status).toBe(409)
+    expect(((await res.json()) as { error: string }).error).toContain('seg_999')
+  })
+
+  it('⛔ 근거를 전부 떼면 409다 — 회의록이 아니라 메모가 된다', async () => {
+    const res = await editContent({
+      runId,
+      section: 'summary',
+      kind: 'text',
+      text: '근거 없는 문장.',
+    })
+    expect(res.status).toBe(409)
+  })
+
+  it('결정을 지울 수 있다 — 결함 B의 시정 수단이다', async () => {
+    const res = await editContent({
+      runId,
+      section: 'decisions',
+      kind: 'remove',
+      index: 0,
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { proposal: { decisions: [] } }).proposal.decisions)
+      .toHaveLength(0)
+  })
+
+  it('section·kind가 없으면 400이다', async () => {
+    expect((await editContent({ runId, section: 'summary' })).status).toBe(400)
+  })
+})
+
 describe('⛔ 검수를 마쳐야 확정된다', () => {
   const acceptAll = async () => {
     for (const section of ['summary', 'decisions', 'evidence'] as const) {
@@ -194,6 +256,24 @@ describe('⛔ 검수를 마쳐야 확정된다', () => {
     await promote({ runId })
     const res = await patch({ runId, section: 'summary', state: 'unreviewed' })
     expect(res.status).toBe(409)
+  })
+
+  it('⛔ 되돌릴 수 있다 — 없으면 오타 하나에 모델을 다시 돌려야 한다', async () => {
+    await acceptAll()
+    await promote({ runId })
+
+    const res = await app.request('/api/sources/src_01/document/reopen', {
+      method: 'POST',
+      body: JSON.stringify({ runId }),
+      headers: { 'content-type': 'application/json' },
+    })
+    expect(res.status).toBe(200)
+    expect(((await res.json()) as { documentState: string }).documentState).toBe(
+      'reviewing'
+    )
+    // 되돌린 뒤에는 다시 고칠 수 있다
+    expect((await patch({ runId, section: 'summary', state: 'in_progress' })).status)
+      .toBe(200)
   })
 
   it('⛔ 항목이 있는데 「없음」으로 넘기면 막힌다', async () => {

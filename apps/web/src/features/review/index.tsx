@@ -234,10 +234,24 @@ function ApprovedView({
             </Button>
           )}
           {doc.view?.documentState === 'current' && (
-            <span className='text-state-success flex items-center gap-1.5 text-sm'>
-              <CheckCheck className='size-4' aria-hidden />
-              확정됨
-            </span>
+            <>
+              <span className='text-state-success flex items-center gap-1.5 text-sm'>
+                <CheckCheck className='size-4' aria-hidden />
+                확정됨
+              </span>
+              {/*
+                ⛔ 되돌릴 길을 둔다. 확정 뒤에는 편집도 검수도 막히는데 되돌릴
+                   방법이 없으면, 오타 하나 고치려고 모델을 다시 돌려야 한다.
+              */}
+              <Button
+                size='sm'
+                variant='ghost'
+                onClick={() => void doc.reopen()}
+                data-testid='reopen-document'
+              >
+                확정 해제
+              </Button>
+            </>
           )}
 
           {/* ⛔ 도는 동안에는 시작 버튼이 아예 없다. 두 번 돌리지 않는다 */}
@@ -280,6 +294,7 @@ function ApprovedView({
         onOpenTranscript={onOpenTranscriptAt}
         onRetry={() => void doc.generate()}
         onReview={(section, patch) => void doc.setReview(section, patch)}
+        onEdit={(edit) => void doc.editContent(edit)}
       />
     </div>
   )

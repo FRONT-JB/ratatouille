@@ -7,6 +7,7 @@
 
 import {
   REVIEW_SECTIONS,
+  type ProposalEdit,
   type ReviewBlocker,
   type ReviewSection,
   RuleViolationError,
@@ -120,6 +121,50 @@ export function documentRoutes(documents: DocumentQueue): Hono {
       }
       if (e instanceof RuleViolationError) {
         return c.json({ error: e.message, rule: e.rule }, 409)
+      }
+      throw e
+    }
+  })
+
+  /**
+   * 사람이 결과를 고친다.
+   *
+   * ⛔ **원문 근거는 고칠 수 없다**(계약이 막는다). 전사문에서 온 사실이라
+   *    사람이 고치는 순간 근거가 아니게 된다.
+   */
+  app.patch('/:id/document/content', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as
+      | ({ runId?: string } & Partial<ProposalEdit>)
+      | null
+    if (!body?.runId || !body.section || !body.kind) {
+      return c.json({ error: 'runId·section·kind가 필요합니다.' }, 400)
+    }
+
+    try {
+      const { runId, ...edit } = body
+      const run = await documents.edit(runId, edit as ProposalEdit)
+      return c.json(toDto(run, documents.blockers(run.id)))
+    } catch (e) {
+      if (e instanceof DocumentRunNotFoundError) {
+        return c.json({ error: e.message }, 404)
+      }
+      if (e instanceof RuleViolationError) {
+        return c.json({ error: e.message, rule: e.rule }, 409)
+      }
+      throw e
+    }
+  })
+
+  /** 확정을 되돌린다. 없으면 고칠 길이 막힌다 */
+  app.post('/:id/document/reopen', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { runId?: string } | null
+    if (!body?.runId) return c.json({ error: 'runId가 필요합니다.' }, 400)
+    try {
+      const run = await documents.reopen(body.runId)
+      return c.json(toDto(run, documents.blockers(run.id)))
+    } catch (e) {
+      if (e instanceof DocumentRunNotFoundError) {
+        return c.json({ error: e.message }, 404)
       }
       throw e
     }

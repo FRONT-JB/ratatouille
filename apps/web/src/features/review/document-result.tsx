@@ -11,12 +11,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   type DocumentReview,
+  type ProposalEdit,
   type ReviewSection,
   type RubricVerdict,
   type SectionReviewState,
-  UNSET_LABEL,
   splitCitations,
 } from '@ratatouille/contracts'
+import { Editable } from './editable'
+import { OwnerAndDue } from './owner-due'
 import { SectionReviewControl } from './section-review'
 import {
   type Citation,
@@ -56,6 +58,7 @@ export function DocumentResult({
   onOpenTranscript,
   onRetry,
   onReview,
+  onEdit,
 }: {
   view: DocumentView | null
   error: string | null
@@ -72,6 +75,7 @@ export function DocumentResult({
     section: ReviewSection,
     patch: { state?: SectionReviewState; rubric?: Record<string, RubricVerdict> }
   ) => void
+  onEdit: (edit: ProposalEdit) => void
 }) {
   if (error && !view) {
     return (
@@ -116,6 +120,7 @@ export function DocumentResult({
           onPlay={onPlay}
           onOpenTranscript={onOpenTranscript}
           onReview={onReview}
+          onEdit={onEdit}
         />
       ) : running ? (
         // ⛔ 도는 동안 내용 자리를 비워두지 않는다. 멈춘 것처럼 보인다.
@@ -210,6 +215,7 @@ function Sections({
   onPlay,
   onOpenTranscript,
   onReview,
+  onEdit,
 }: {
   proposal: NonNullable<DocumentView['proposal']>
   segments: readonly RevisionSegmentView[]
@@ -222,6 +228,7 @@ function Sections({
     section: ReviewSection,
     patch: { state?: SectionReviewState; rubric?: Record<string, RubricVerdict> }
   ) => void
+  onEdit: (edit: ProposalEdit) => void
 }) {
   const numbers = footnoteNumbers(proposal.evidence)
   const notes = citationsOf(
@@ -301,7 +308,21 @@ function Sections({
                        화면을 보는 것처럼 읽힌다.
                   */}
                   <SectionLabel>{n.heading}</SectionLabel>
-                  <p className='text-base whitespace-pre-wrap'>{body(n.body)}</p>
+                  <Editable
+                    text={n.body}
+                    label={n.heading}
+                    disabled={locked}
+                    onSave={(text) =>
+                      onEdit({
+                        section: 'summary',
+                        kind: 'narrative',
+                        index: i,
+                        body: text,
+                      })
+                    }
+                  >
+                    <p className='text-base whitespace-pre-wrap'>{body(n.body)}</p>
+                  </Editable>
                 </section>
               ))}
             </div>
@@ -313,9 +334,16 @@ function Sections({
              같은 말이 두 줄로 겹친다.
         */}
         <TabsContent value='summary' data-section='summary'>
-          <p className='text-base whitespace-pre-wrap'>
-            {body(proposal.summary.text)}
-          </p>
+          <Editable
+            text={proposal.summary.text}
+            label='요약'
+            disabled={locked}
+            onSave={(text) => onEdit({ section: 'summary', kind: 'text', text })}
+          >
+            <p className='text-base whitespace-pre-wrap'>
+              {body(proposal.summary.text)}
+            </p>
+          </Editable>
         </TabsContent>
         {/*
           ⛔ 회의 내용과 요약은 **한 검수 상태**를 나눠 갖는다. 같은 내용의
@@ -343,7 +371,23 @@ function Sections({
                 <span className='text-muted-foreground pt-px font-mono text-sm tabular-nums'>
                   {i + 1}
                 </span>
-                <span>{body(d.what)}</span>
+                {/*
+                  ⛔ 지울 수 있어야 한다. 결함 B(제안을 결정으로 승격)의
+                     유일한 시정은 그 항목을 없애는 것이다.
+                */}
+                <Editable
+                  text={d.what}
+                  label={`결정 ${i + 1}`}
+                  disabled={locked}
+                  onSave={(text) =>
+                    onEdit({ section: 'decisions', kind: 'text', index: i, text })
+                  }
+                  onRemove={() =>
+                    onEdit({ section: 'decisions', kind: 'remove', index: i })
+                  }
+                >
+                  <span>{body(d.what)}</span>
+                </Editable>
               </li>
             ))}
           </ol>
@@ -366,15 +410,30 @@ function Sections({
                   {i + 1}
                 </span>
                 <div>
-                  <p>{body(t.action)}</p>
+                  <Editable
+                    text={t.action}
+                    label={`Action Item ${i + 1}`}
+                    disabled={locked}
+                    onSave={(text) =>
+                      onEdit({ section: 'tasks', kind: 'text', index: i, text })
+                    }
+                    onRemove={() =>
+                      onEdit({ section: 'tasks', kind: 'remove', index: i })
+                    }
+                  >
+                    <p>{body(t.action)}</p>
+                  </Editable>
                   {/*
                     ⛔ 담당자·기한이 비어 있는 것을 숨기지 않는다. 화자 분리를
                        접었으므로 "제가 하겠습니다"는 누구인지 알 수 없다.
                        사람이 지정할 자리라는 것을 보여준다.
                   */}
-                  <p className='text-muted-foreground mt-1 text-sm'>
-                    담당 {t.owner ?? UNSET_LABEL} · 기한 {t.due ?? UNSET_LABEL}
-                  </p>
+                  <OwnerAndDue
+                    task={t}
+                    index={i}
+                    disabled={locked}
+                    onEdit={onEdit}
+                  />
                 </div>
               </li>
             ))}

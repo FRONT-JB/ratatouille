@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
+  ProposalEdit,
   ReviewSection,
   RubricVerdict,
   SectionReviewState,
@@ -128,6 +129,37 @@ export function useDocument(sourceId: string, deps: DocumentDeps = {}) {
     [request, view?.runId]
   )
 
+  /**
+   * 사람이 결과를 고친다.
+   *
+   * ⛔ 서버가 근거를 다시 검증하고 거절할 수 있다. 그때는 **화면도 되돌아가야**
+   *    한다 — 낙관적으로 반영해두면 저장되지 않은 글이 저장된 것처럼 보인다.
+   */
+  const editContent = useCallback(
+    async (edit: ProposalEdit) => {
+      const runId = view?.runId
+      if (!runId) return false
+      try {
+        setView(
+          await request(
+            {
+              method: 'PATCH',
+              body: JSON.stringify({ runId, ...edit }),
+              headers: { 'content-type': 'application/json' },
+            },
+            '/content'
+          )
+        )
+        setError(null)
+        return true
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+        return false
+      }
+    },
+    [request, view?.runId]
+  )
+
   /** 검수를 마치고 확정한다. 서버가 규칙 7을 강제한다 */
   const promote = useCallback(async () => {
     const runId = view?.runId
@@ -139,6 +171,29 @@ export function useDocument(sourceId: string, deps: DocumentDeps = {}) {
           body: JSON.stringify({ runId }),
           headers: { 'content-type': 'application/json' },
         }, '/current')
+      )
+      setError(null)
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      return false
+    }
+  }, [request, view?.runId])
+
+  /** 확정을 되돌린다. 없으면 오타 하나에 모델을 다시 돌려야 한다 */
+  const reopen = useCallback(async () => {
+    const runId = view?.runId
+    if (!runId) return false
+    try {
+      setView(
+        await request(
+          {
+            method: 'POST',
+            body: JSON.stringify({ runId }),
+            headers: { 'content-type': 'application/json' },
+          },
+          '/reopen'
+        )
       )
       setError(null)
       return true
@@ -175,5 +230,14 @@ export function useDocument(sourceId: string, deps: DocumentDeps = {}) {
     }
   }, [request, load])
 
-  return { view, error, generate, setReview, promote, reload: load }
+  return {
+    view,
+    error,
+    generate,
+    setReview,
+    editContent,
+    promote,
+    reopen,
+    reload: load,
+  }
 }
