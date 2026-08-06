@@ -52,7 +52,7 @@ export function sharedAudioContext(): AudioContext {
  * ⚠️ 한 곳에서만 판단한다. 호출부마다 `ctx.state`를 직접 보면, 위에서 한 번
  *    비교한 뒤 TS가 타입을 좁혀 두는 바람에 아래 비교가 컴파일되지 않는다.
  */
-export function audioRunning(): boolean {
+function audioRunning(): boolean {
   return sharedCtx?.state === 'running'
 }
 

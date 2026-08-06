@@ -36,7 +36,7 @@ export type NextAction = {
   label: string
 }
 
-export type JobView = {
+type JobView = {
   id: string
   sourceId: string
   jobState: 'queued' | 'transcribing' | 'completed' | 'failed_retryable'

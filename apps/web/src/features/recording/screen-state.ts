@@ -70,7 +70,7 @@ export type RecordingInput = {
   stopError: string | null
 }
 
-export type PreservationLevel = 'empty' | 'at_risk' | 'local_only' | 'safe'
+type PreservationLevel = 'empty' | 'at_risk' | 'local_only' | 'safe'
 
 export type Preservation = {
   level: PreservationLevel
@@ -203,7 +203,7 @@ function deriveControls(input: RecordingInput): RecordingControls {
   }
 }
 
-export function formatElapsed(ms: number): string {
+function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000))
   const s = total % 60
   const m = Math.floor(total / 60) % 60

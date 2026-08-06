@@ -13,7 +13,7 @@
 import type { RecordingManifest } from '@ratatouille/contracts'
 
 /** 조각 크기. 5초 녹음 조각(약 80KB)보다 크지만 재전송 단위로 적당하다. */
-export const UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024
+const UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024
 
 export const ACCEPTED_AUDIO = [
   'audio/mpeg',
@@ -26,7 +26,7 @@ export const ACCEPTED_AUDIO = [
   'audio/x-m4a',
 ]
 
-export type UploadPhase =
+type UploadPhase =
   | 'idle'
   | 'uploading'
   | 'verifying'
@@ -92,7 +92,7 @@ export function buildUploadManifest(input: {
   }
 }
 
-export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
+type FetchLike = (url: string, init?: RequestInit) => Promise<Response>
 
 export type UploadDeps = {
   fetch?: FetchLike

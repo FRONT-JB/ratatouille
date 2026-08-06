@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { levelToBarHeight, readLevel } from './audio-level'
 import { acquireAnalyser, releaseAnalyser } from './analyser-pool'
 
-export const BAR_COUNT = 32
+const BAR_COUNT = 32
 
 const FLAT: readonly number[] = Array(BAR_COUNT).fill(0)
 

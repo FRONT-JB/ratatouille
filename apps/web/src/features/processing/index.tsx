@@ -226,7 +226,7 @@ function Shell({
  * ⛔ **접었다 펴는 토글로 두지 않는다.** 한 줄짜리 사실 세 개다. 토글은
  *    누를 값어치가 있는 분량에만 쓴다.
  */
-export function factsOf(s: SessionSource): string {
+function factsOf(s: SessionSource): string {
   const parts = [`조각 ${s.chunkCount}개`]
   if (s.job?.segmentCount != null) parts.push(`세그먼트 ${s.job.segmentCount}개`)
   if (s.job?.elapsedMs != null) {

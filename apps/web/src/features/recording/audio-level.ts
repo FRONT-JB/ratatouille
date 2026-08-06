@@ -15,7 +15,7 @@
 export const SILENCE_RMS = 0.005
 
 /** 무음이 이만큼 이어지면 경고한다 */
-export const SILENCE_GRACE_MS = 3000
+const SILENCE_GRACE_MS = 3000
 
 export type LevelReading = {
   /** 0~1로 정규화된 RMS */
