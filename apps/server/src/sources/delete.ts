@@ -35,6 +35,13 @@ export type DeleteDeps = {
   transcription?: TranscriptionQueue
   runs?: RunArtifactStore
   vault?: VaultStore
+  /**
+   * 재생용 오디오 캐시. 있으면 함께 버린다.
+   *
+   * ⚠️ 휴지통으로 옮기지 않고 **버린다.** 조각에서 다시 만들 수 있는
+   *    파생물이라 잃는 것이 없다. 남겨두면 지운 회의의 소리가 계속 재생된다.
+   */
+  audio?: { invalidate: (sourceId: string) => Promise<void> }
   /** 옮겨 둘 곳. 없으면 삭제 자체를 열지 않는다 */
   trashRoot: string
   /** 휴지통 폴더 이름에 붙일 시각. 테스트에서 고정할 수 있게 주입한다 */
@@ -135,6 +142,8 @@ export async function deleteSource(
       moved.push('jobs')
     }
   }
+
+  await deps.audio?.invalidate(sourceId).catch(() => undefined)
 
   // ⛔ 디스크를 옮긴 **뒤에** 메모리에서 지운다. 순서를 바꾸면 중간에 죽었을 때
   //    파일은 남았는데 아무도 그 존재를 모르는 상태가 된다.

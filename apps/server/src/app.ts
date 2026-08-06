@@ -1,4 +1,6 @@
 import { Hono } from 'hono'
+import type { AudioPublisher } from './audio/publisher.ts'
+import { audioRoutes } from './routes/audio.ts'
 import { type PublishFn, sourcesRoutes } from './routes/sources.ts'
 import { transcriptionRoutes } from './routes/transcriptions.ts'
 import type { RunArtifactStore } from './runs/store.ts'
@@ -31,6 +33,8 @@ export type AppDeps = {
   trashRoot?: string
   /** 삭제 시 vault 문서까지 함께 옮기려면 필요하다 */
   vault?: VaultStore
+  /** 없으면 재생 경로를 열지 않는다 (수집만 하는 테스트용 앱) */
+  audio?: AudioPublisher
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -48,11 +52,15 @@ export function createApp(deps: AppDeps): Hono {
             transcription: deps.transcription,
             runs: deps.runs,
             vault: deps.vault,
+            audio: deps.audio,
             trashRoot: deps.trashRoot,
           }
         : undefined
     )
   )
+  if (deps.audio) {
+    app.route('/api/sources', audioRoutes(deps.sources, deps.audio))
+  }
   if (deps.transcription) {
     app.route('/api', transcriptionRoutes(deps.sources, deps.transcription, deps.runs))
   }

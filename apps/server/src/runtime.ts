@@ -12,6 +12,7 @@
 
 import * as path from 'node:path'
 import { type AppDeps, createApp } from './app.ts'
+import { AudioPublisher } from './audio/publisher.ts'
 import { VaultIndex } from './index-db/indexer.ts'
 import { RunArtifactStore } from './runs/store.ts'
 import { publishSource } from './sources/publish.ts'
@@ -86,8 +87,15 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
   const recoveredJobs = await transcription.load()
   if (recoveredJobs > 0) console.log(`[boot] 전사 job ${recoveredJobs}건 복구`)
 
+  // 재생용 오디오. 캐시는 파생물이라 지워도 조각에서 다시 만들어진다.
+  const audio = new AudioPublisher({
+    cacheRoot: path.join(dataRoot, 'playback'),
+    workRoot: path.join(dataRoot, 'work'),
+  })
+
   const deps: AppDeps = {
     sources,
+    audio,
     publish: (src) => publishSource(src, { vault, runs }),
     transcription,
     runs,
