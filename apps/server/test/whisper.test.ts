@@ -11,7 +11,6 @@ const base = {
   modelPath: '/m/ggml-large-v3-turbo.bin',
   audioPath: '/a/in.wav',
   outPrefix: '/o/out',
-  captureMode: 'in_person' as const,
 }
 
 describe('명령 구성 — Phase 0에서 확정한 설정', () => {
@@ -38,22 +37,33 @@ describe('명령 구성 — Phase 0에서 확정한 설정', () => {
   })
 })
 
-describe('⛔ 화자 분리는 온라인 모드에서만', () => {
-  // Phase 0.5c 실측: `-di`는 **스테레오 좌/우 채널**을 화자로 가른다.
-  // mic과 remote를 두 채널로 합친 온라인 녹음에서만 의미가 있다.
-  // 대면 모드는 단일 채널이라 붙이면 잘못된 라벨이 생긴다.
+describe('⛔ 화자 분리를 쓰지 않는다 (2026-08-06 범위 변경)', () => {
+  /*
+   * 접은 이유 — 실측(src_msgszcix, 58.6초 온라인 회의, 같은 모델):
+   *
+   *   stereo join + `-di`  → 7 세그먼트(평균 8.4초), **전부 speaker 1**
+   *   dynaudnorm + mono    → 15 세그먼트(평균 3.9초)
+   *
+   * 화자 분리는 **동작하지 않았다**. 마이크가 탭보다 28.7 dB 작아서 좌채널이
+   * 거의 무음이었기 때문이다(0.5c의 98.2%는 음량이 맞는 합성 오디오였다).
+   * 그 대가로 타임라인이 8초 덩어리로 뭉개졌다. 8초짜리 덩어리는 어디를
+   * 고쳐야 할지 짚을 수 없어 재교정과 timestamp jump 양쪽을 망친다.
+   *
+   * ⚠️ 되돌릴 수 있다. mic·remote 조각은 track별로 그대로 보존된다.
+   */
 
-  it('온라인 모드에는 -di를 붙인다', () => {
-    expect(buildWhisperArgs({ ...base, captureMode: 'online' })).toContain('-di')
-  })
-
-  it('대면 모드에는 붙이지 않는다', () => {
+  it('-di를 붙이지 않는다', () => {
     expect(buildWhisperArgs(base)).not.toContain('-di')
   })
 
-  it('⛔ tinydiarize(-tdrz)는 쓰지 않는다 — 영어 전용이다', () => {
+  it('⛔ tinydiarize(-tdrz)도 쓰지 않는다 — 영어 전용이다', () => {
     // Phase 0.5c에서 확인. 한국어에 붙이면 조용히 이상한 결과가 나온다.
-    expect(buildWhisperArgs({ ...base, captureMode: 'online' })).not.toContain('-tdrz')
+    expect(buildWhisperArgs(base)).not.toContain('-tdrz')
+  })
+
+  it('⛔ 입력 모드로 화자 분리를 되살릴 수 없다 — 옵션 자체가 없다', () => {
+    // `captureMode`를 지웠다. 남겨두면 "온라인일 때만 켜자"가 언제든 돌아온다.
+    expect(Object.keys(base)).not.toContain('captureMode')
   })
 })
 

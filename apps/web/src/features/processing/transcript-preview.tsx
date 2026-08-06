@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { cn } from '@/lib/utils'
 import type { FetchLike } from './session'
 
 /**
@@ -19,6 +18,13 @@ export type TranscriptSegmentView = {
   endMs: number
   timestamp: string
   text: string
+  /**
+   * whisper가 준 화자 라벨.
+   *
+   * ⚠️ **화면에 쓰지 않는다** (2026-08-06 범위 변경). 화자 분리는 실제 회의에서
+   *    동작하지 않았고(전부 한 화자), 그 대가로 타임라인이 8초 덩어리로
+   *    뭉개졌다. 서버 응답에는 남아 있으므로 필드는 유지한다.
+   */
   speaker: string | null
 }
 
@@ -72,10 +78,6 @@ export function TranscriptPreview({
     return <p className='text-muted-foreground text-sm'>전사 원문을 불러오는 중…</p>
   }
 
-  // 화자가 하나뿐이면 라벨을 보여줘도 정보가 없다
-  const speakers = new Set(data.segments.map((s) => s.speaker).filter(Boolean))
-  const showSpeaker = speakers.size > 1
-
   return (
     <section className='flex flex-col gap-3' data-testid='transcript-preview'>
       <div className='flex flex-wrap items-baseline justify-between gap-2'>
@@ -85,17 +87,6 @@ export function TranscriptPreview({
           {data.audioMs ? ` · ${Math.round(data.audioMs / 1000)}초` : ''}
         </span>
       </div>
-
-      {/*
-        ⚠️ 화자 분리는 온라인 모드에서 mic·remote 두 채널로 가른다.
-           한쪽이 훨씬 크면 전부 한 화자로 몰린다 — 그 사실을 숨기지 않는다.
-      */}
-      {data.captureMode === 'online' && !showSpeaker && (
-        <p className='text-state-warning text-xs'>
-          화자가 하나로만 잡혔습니다. 마이크와 탭 오디오의 음량 차이가 크면 채널
-          분리가 제대로 되지 않습니다.
-        </p>
-      )}
 
       <ol className='border-border divide-border divide-y rounded-md border'>
         {data.segments.map((s) => (
@@ -107,18 +98,6 @@ export function TranscriptPreview({
             <span className='text-muted-foreground shrink-0 font-mono text-xs tabular-nums'>
               {s.timestamp}
             </span>
-            {showSpeaker && (
-              <span
-                className={cn(
-                  'shrink-0 rounded px-1.5 text-xs',
-                  s.speaker === '0'
-                    ? 'bg-primary/10 text-primary'
-                    : 'bg-state-info/10 text-state-info'
-                )}
-              >
-                화자 {s.speaker}
-              </span>
-            )}
             <span className='leading-[1.618]'>{s.text}</span>
           </li>
         ))}

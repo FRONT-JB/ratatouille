@@ -5,10 +5,23 @@
  *   1. 조각을 순번대로 이어 붙인다 (MediaRecorder 한 세션의 조각은 연속 스트림이다)
  *   2. `ffmpeg`으로 16kHz PCM WAV로 바꾼다 — whisper.cpp가 요구하는 형식
  *
- * ⛔ 온라인 모드는 mic·remote를 **스테레오 좌/우 채널**로 합친다.
- *    Phase 0.5c 실측: `whisper-cli -di`는 채널로 화자를 가른다(정확도 98.2%).
- *    두 track을 섞어(mix) 모노로 만들면 화자 분리가 **원리적으로 불가능**해진다.
- *    이건 취향이 아니라 `-di`가 동작하기 위한 전제다.
+ * ⛔ **온라인 모드도 모노로 섞는다** — 2026-08-06 범위 변경.
+ *
+ *    예전에는 mic·remote를 좌/우 채널로 **분리**했다. `whisper-cli -di`가
+ *    채널로 화자를 가르기 때문이었고, 0.5c 합성 오디오에서 98.2%가 나왔다.
+ *    **실제 회의에서는 동작하지 않았다.** 실측(src_msgszcix, 58.6초):
+ *
+ *      stereo join + `-di` → 7 세그먼트(평균 8.4초), **전부 speaker 1**
+ *      dynaudnorm + mono   → 15 세그먼트(평균 3.9초)
+ *
+ *    마이크가 탭보다 28.7 dB 작아 좌채널이 거의 무음이었다. 화자는 못 가르면서
+ *    타임라인만 8초 덩어리로 뭉갰다. 재교정도 timestamp jump도 8초 덩어리로는
+ *    쓸 수 없다.
+ *
+ * ⛔ 섞기 **전에** track별 음량을 맞춘다. 안 그러면 작은 쪽 발화가 전사에서
+ *    통째로 누락된다 — 실제로 위 A안에서 마이크 발화가 거의 잡히지 않았다.
+ *
+ * ⚠️ 되돌릴 수 있다. mic·remote 조각은 track별로 그대로 보존된다.
  */
 
 import * as fs from 'node:fs/promises'
@@ -19,10 +32,18 @@ import type { CaptureMode } from '@ratatouille/contracts'
 export const WHISPER_SAMPLE_RATE = 16_000
 
 /**
+ * track별 음량 평준화. 재생용(`audio/args.ts`)과 같은 설정을 쓴다.
+ *
+ * ⛔ 이게 없으면 작은 쪽 track의 발화가 전사에서 통째로 빠진다.
+ *    실측: 마이크 mean −48.7 dB / 탭 −20.0 dB.
+ */
+const LEVEL_MATCH = 'dynaudnorm=f=250:g=15:m=20'
+
+/**
  * ffmpeg 인자를 만든다.
  *
  * 대면(단일 track) → 모노 16kHz.
- * 온라인(두 track) → 스테레오 16kHz, mic=좌 / remote=우.
+ * 온라인(두 track) → 음량을 맞춘 뒤 **모노로 섞어** 16kHz.
  */
 export function buildFfmpegArgs(input: {
   captureMode: CaptureMode
@@ -30,22 +51,20 @@ export function buildFfmpegArgs(input: {
   remotePath?: string | null
   outPath: string
 }): string[] {
-  const stereo =
-    input.captureMode === 'online' && Boolean(input.remotePath)
+  const both = input.captureMode === 'online' && Boolean(input.remotePath)
 
-  if (!stereo) {
-    return [
-      '-y',
-      '-i',
-      input.micPath,
-      '-ar',
-      String(WHISPER_SAMPLE_RATE),
-      '-ac',
-      '1',
-      '-c:a',
-      'pcm_s16le',
-      input.outPath,
-    ]
+  const tail = [
+    '-ar',
+    String(WHISPER_SAMPLE_RATE),
+    '-ac',
+    '1',
+    '-c:a',
+    'pcm_s16le',
+    input.outPath,
+  ]
+
+  if (!both) {
+    return ['-y', '-i', input.micPath, '-af', LEVEL_MATCH, ...tail]
   }
 
   return [
@@ -54,17 +73,14 @@ export function buildFfmpegArgs(input: {
     input.micPath,
     '-i',
     input.remotePath!,
-    // ⛔ amix가 아니라 join이다. amix는 두 소리를 섞어 모노로 만들고,
-    //    그러면 -di가 화자를 가를 채널이 사라진다.
     '-filter_complex',
-    '[0:a][1:a]join=inputs=2:channel_layout=stereo[a]',
+    // 음량을 **각각** 맞춘 뒤 섞는다. 섞고 나서 맞추면 이미 묻힌 소리는
+    // 돌아오지 않는다.
+    `[0:a]${LEVEL_MATCH}[m];[1:a]${LEVEL_MATCH}[r];` +
+      '[m][r]amix=inputs=2:duration=longest:dropout_transition=0[a]',
     '-map',
     '[a]',
-    '-ar',
-    String(WHISPER_SAMPLE_RATE),
-    '-c:a',
-    'pcm_s16le',
-    input.outPath,
+    ...tail,
   ]
 }
 

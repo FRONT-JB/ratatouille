@@ -11,7 +11,6 @@
  * 명령 구성과 출력 파싱을 실제 실행 없이 검증할 수 있어야 한다.
  */
 
-import type { CaptureMode } from '@ratatouille/contracts'
 
 /** Phase 0.5 실측값. 크게 벗어나면 설정을 의심한다. */
 export const WHISPER_BASELINE = {
@@ -30,7 +29,6 @@ export type WhisperOptions = {
   audioPath: string
   /** 확장자 없이. whisper가 `<prefix>.json`을 만든다 */
   outPrefix: string
-  captureMode: CaptureMode
   /** 참석자·제품명 등. Phase 0.5e에서 정확도 57.1% → 90.0% */
   vocabulary?: string[]
 }
@@ -69,11 +67,23 @@ export function buildWhisperArgs(opts: WhisperOptions): string[] {
     opts.outPrefix,
   ]
 
-  // ⛔ `-di`는 스테레오 좌/우 채널을 화자로 가른다 (Phase 0.5c, 정확도 98.2%).
-  //    mic·remote를 두 채널로 합친 온라인 녹음에서만 의미가 있다.
-  //    대면 모드는 단일 채널이라 붙이면 없는 화자를 만들어낸다.
-  //    `-tdrz`(tinydiarize)는 **영어 전용**이라 한국어에 쓰지 않는다.
-  if (opts.captureMode === 'online') args.push('-di')
+  /*
+   * ⛔ **화자 분리(`-di`)를 쓰지 않는다** — 2026-08-06 범위 변경.
+   *
+   *    실측(src_msgszcix, 58.6초 온라인 회의, 같은 모델):
+   *      stereo join + `-di` → 7 세그먼트(평균 8.4초), **전부 speaker 1**
+   *      dynaudnorm + mono   → 15 세그먼트(평균 3.9초)
+   *
+   *    `-di`는 좌/우 채널로 화자를 가르는데, 실제 녹음에서는 마이크가 탭보다
+   *    28.7 dB 작아 좌채널이 거의 무음이었다. 0.5c의 98.2%는 음량이 맞는
+   *    합성 오디오에서 나온 수치였고, 실제 회의에서는 **분리가 되지 않았다.**
+   *    그 대가로 타임라인이 8초 덩어리로 뭉개졌다 — 재교정도 timestamp jump도
+   *    8초 덩어리로는 쓸 수 없다.
+   *
+   *    `-tdrz`(tinydiarize)는 **영어 전용**이라 한국어에 쓰지 않는다.
+   *
+   * ⚠️ 되돌릴 수 있다. mic·remote 조각은 track별로 그대로 보존된다.
+   */
 
   const prompt = buildPromptInjection(opts.vocabulary ?? [])
   if (prompt) {

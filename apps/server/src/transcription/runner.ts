@@ -91,7 +91,6 @@ export class TranscriptionRunner {
       modelPath: this.deps.modelPath,
       audioPath,
       outPrefix,
-      captureMode: input.captureMode,
       vocabulary: input.vocabulary,
     })
 
