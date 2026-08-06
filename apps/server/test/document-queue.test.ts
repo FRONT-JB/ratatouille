@@ -19,12 +19,14 @@ import { DocumentRunner, looksLikeAuthFailure } from '../src/documents/runner.ts
 import { RevisionStore } from '../src/revisions/store.ts'
 import { RunArtifactStore } from '../src/runs/store.ts'
 import { SourceRepository } from '../src/sources/repository.ts'
+import { VaultStore } from '../src/vault/store.ts'
 
 let root: string
 let sources: SourceRepository
 let revisions: RevisionStore
 let runs: RunArtifactStore
 let queue: DocumentQueue
+let vault: VaultStore
 
 /** 모델이 돌려줄 JSON. 테스트마다 갈아끼운다 */
 let modelOutput: string
@@ -93,11 +95,14 @@ beforeEach(async () => {
   runs = new RunArtifactStore(path.join(root, 'runs'))
   sources = new SourceRepository(path.join(root, 'blobs'))
   revisions = new RevisionStore({ stateRoot: path.join(root, 'revisions'), runs })
+  vault = new VaultStore(path.join(root, 'vault'))
+  await vault.init()
   queue = new DocumentQueue({
     runner: new DocumentRunner({ spawnFn: fakeHermes() }),
     sources,
     revisions,
     runs,
+    vault,
     stateRoot: path.join(root, 'docruns'),
     provenance: DEFAULT_PROVENANCE,
   })
@@ -412,6 +417,84 @@ describe('⛔ 사람이 검수해야 current가 된다', () => {
     })
     await reloaded.load()
     expect(reloaded.get(run.id)!.review.summary.state).toBe('accepted')
+  })
+})
+
+describe('⛔ 확정하면 vault에 남는다 — 9절', () => {
+  const acceptAll = async (runId: string) => {
+    for (const s of ['summary', 'decisions', 'evidence'] as const) {
+      await queue.review(runId, s, { state: 'accepted' })
+    }
+    await queue.review(runId, 'tasks', { state: 'empty' })
+  }
+
+  it('확정 전에는 vault에 아무것도 없다', async () => {
+    await withRevision()
+    await queue.enqueue('src_01')
+    expect(await vault.read('notes/src_01.md')).toBeNull()
+  })
+
+  it('확정하면 회의록이 생긴다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await acceptAll(run.id)
+    await queue.promote(run.id)
+
+    const note = await vault.read('notes/src_01.md')
+    expect(note).not.toBeNull()
+    expect(note!.frontmatter.source_id).toBe('src_01')
+    expect(note!.body).toContain('## 요약')
+  })
+
+  it('⛔ 오디오나 전사 본문을 복사하지 않는다 — ID로만 참조한다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await acceptAll(run.id)
+    await queue.promote(run.id)
+
+    const note = await vault.read('notes/src_01.md')
+    expect(JSON.stringify(note!.frontmatter)).not.toContain('결제 모듈')
+  })
+
+  it('⛔ 사람이 쓴 frontmatter를 지우지 않는다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await acceptAll(run.id)
+    await queue.promote(run.id)
+
+    // Obsidian에서 태그를 붙였다
+    const note = (await vault.read('notes/src_01.md'))!
+    await vault.write('notes/src_01.md', {
+      frontmatter: { ...note.frontmatter, tags: ['결제'] },
+      body: note.body,
+    })
+
+    // 다시 정리하고 다시 확정한다
+    const again = await queue.enqueue('src_01')
+    await acceptAll(again.id)
+    await queue.promote(again.id)
+
+    const after = (await vault.read('notes/src_01.md'))!
+    expect(after.frontmatter.tags).toEqual(['결제'])
+    expect(after.frontmatter.documentation_run_id).toBe(again.id)
+  })
+
+  it('vault 없이도 확정은 된다 — 수집만 하는 구성이 있다', async () => {
+    const noVault = new DocumentQueue({
+      runner: new DocumentRunner({ spawnFn: fakeHermes() }),
+      sources,
+      revisions,
+      runs,
+      stateRoot: path.join(root, 'docruns2'),
+      provenance: DEFAULT_PROVENANCE,
+    })
+    await withRevision('src_02')
+    const run = await noVault.enqueue('src_02')
+    for (const s of ['summary', 'decisions', 'evidence'] as const) {
+      await noVault.review(run.id, s, { state: 'accepted' })
+    }
+    await noVault.review(run.id, 'tasks', { state: 'empty' })
+    expect((await noVault.promote(run.id)).documentState).toBe('current')
   })
 })
 

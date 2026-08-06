@@ -118,6 +118,8 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     sources,
     revisions,
     runs,
+    // ⛔ vault가 원본이다. 확정 문서가 여기까지 와야 앱 밖에서도 산다
+    vault,
     stateRoot: path.join(dataRoot, 'document-runs'),
     provenance: DEFAULT_PROVENANCE,
   })

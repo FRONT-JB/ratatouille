@@ -32,6 +32,8 @@ import {
   transition,
 } from '@ratatouille/contracts'
 import type { RevisionStore } from '../revisions/store.ts'
+import type { VaultStore } from '../vault/store.ts'
+import { meetingNotePath, renderMeetingNote } from './markdown.ts'
 import type { RunArtifactStore } from '../runs/store.ts'
 import type { SourceRepository } from '../sources/repository.ts'
 import { formatTimestamp } from '../transcription/runner.ts'
@@ -67,6 +69,20 @@ export type DocumentRun = {
 
 const STATE_FILE = 'run.state.json'
 
+/**
+ * 사람이 읽는 회의 이름.
+ *
+ * ⛔ id(`src_msgvfbti`)를 제목으로 두지 않는다 — 사람이 읽을 수 없다.
+ *    사이드바와 같은 규칙(`MM/DD HH:mm`)을 쓴다.
+ */
+function titleOf(startedAt: string | null, fallback: string): string {
+  if (!startedAt) return fallback
+  const d = new Date(startedAt)
+  if (Number.isNaN(d.getTime())) return fallback
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 export class DocumentRunNotFoundError extends Error {
   constructor(readonly runId: string) {
     super(`정리 결과 ${runId}를 찾을 수 없습니다.`)
@@ -92,6 +108,13 @@ export type DocumentQueueDeps = {
   sources: SourceRepository
   revisions: RevisionStore
   runs: RunArtifactStore
+  /**
+   * 확정 문서가 실제로 사는 곳.
+   *
+   * ⛔ **없어도 확정은 된다.** 수집만 하는 구성이 있고, vault를 못 쓴다고
+   *    검수 결과를 잃으면 안 된다. 다만 있으면 반드시 쓴다 — vault가 원본이다.
+   */
+  vault?: VaultStore
   stateRoot: string
   now?: () => Date
   /**
@@ -260,7 +283,38 @@ export class DocumentQueue {
       'current'
     ) as DocumentState
     await this.persist(run)
+    await this.writeNote(run)
     return run
+  }
+
+  /**
+   * 확정 문서를 vault에 쓴다.
+   *
+   * ⛔ **사람이 쓴 frontmatter를 지우지 않는다**(9절). 디스크에 있던 것을
+   *    먼저 깔고 앱이 소유한 키만 덮는다. 사람이 붙인 태그가 다시 확정할 때
+   *    사라지면, 그 사람은 다시는 이 앱을 안 쓴다.
+   */
+  private async writeNote(run: DocumentRun): Promise<void> {
+    const vault = this.deps.vault
+    if (!vault || !run.proposal) return
+
+    const src = this.deps.sources.get(run.sourceId)
+    const relPath = meetingNotePath(run.sourceId)
+    const existing = await vault.read(relPath)
+
+    await vault.write(
+      relPath,
+      renderMeetingNote({
+        sourceId: run.sourceId,
+        revisionId: run.revisionId,
+        runId: run.id,
+        sourceHash: src?.sourceHash ?? '',
+        title: titleOf(src?.manifest?.startedAt ?? null, run.sourceId),
+        startedAt: src?.manifest?.startedAt ?? null,
+        proposal: run.proposal,
+        existing: existing?.frontmatter,
+      })
+    )
   }
 
   get(runId: string): DocumentRun | null {
