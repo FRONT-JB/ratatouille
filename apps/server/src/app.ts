@@ -1,7 +1,9 @@
 import { Hono } from 'hono'
 import type { AudioPublisher } from './audio/publisher.ts'
 import type { RevisionStore } from './revisions/store.ts'
+import type { DocumentQueue } from './documents/queue.ts'
 import { audioRoutes } from './routes/audio.ts'
+import { documentRoutes } from './routes/documents.ts'
 import { revisionRoutes } from './routes/revisions.ts'
 import { type PublishFn, sourcesRoutes } from './routes/sources.ts'
 import { transcriptionRoutes } from './routes/transcriptions.ts'
@@ -39,6 +41,8 @@ export type AppDeps = {
   audio?: AudioPublisher
   /** 없으면 전사 교정 경로를 열지 않는다 */
   revisions?: RevisionStore
+  /** 없으면 AI 정리 경로를 열지 않는다 */
+  documents?: DocumentQueue
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -71,6 +75,9 @@ export function createApp(deps: AppDeps): Hono {
       '/api/sources',
       revisionRoutes(deps.sources, deps.transcription, deps.revisions, deps.runs)
     )
+  }
+  if (deps.documents) {
+    app.route('/api/sources', documentRoutes(deps.documents))
   }
   if (deps.transcription) {
     app.route(

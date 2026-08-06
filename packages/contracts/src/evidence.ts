@@ -53,6 +53,31 @@ export type EvidenceViolation =
  * 인용하면 근거 대조가 불가능해진다. 근거는 **원문 그대로**여야 한다.
  * (실측에서는 모델이 이 동작을 올바르게 했다 — `토스페이먼치`를 그대로 인용)
  */
+/**
+ * 인용문이 원문에서 온 것인가.
+ *
+ * ⛔ **규칙의 목적은 "모델이 전사 오류를 교정해서 인용하는 것"을 막는 것이다.**
+ *    `토스페이먼치`를 `토스페이먼츠`로 고쳐 인용하면 근거 대조가 불가능해진다.
+ *
+ * ⚠️ 예전에는 **완전 일치**를 요구했다. 실측(src_msgvfbti, 1423 세그먼트)에서
+ *    모델이 `11시가 중...`을 `11시가 중`으로 인용했고, **말줄임표 하나 때문에
+ *    근거 48건·결정 7건·할 일 6건이 통째로 막혔다.** 잘라 인용하는 것은
+ *    교정이 아니다 — 목적과 무관한 것으로 전체를 버리고 있었다.
+ *
+ * 그래서 **부분 문자열**로 판정한다. 이 규칙은 중요한 방향으로는 더 엄격하다:
+ *   · 잘라 인용   `11시가 중` ⊂ `11시가 중...`        → 통과
+ *   · 교정해 인용 `토스페이먼츠` ⊄ `토스페이먼치...`   → 거부
+ *
+ * 공백은 정규화한다. 모델이 띄어쓰기를 다듬는 것도 교정이 아니다.
+ * 빈 인용은 거부한다 — 부분 문자열 규칙에서 빈 문자열은 무조건 통과한다.
+ */
+export function quoteMatches(quote: string, original: string): boolean {
+  const norm = (s: string) => s.trim().replace(/\s+/g, ' ')
+  const q = norm(quote)
+  if (q.length === 0) return false
+  return norm(original).includes(q)
+}
+
 export function verifyEvidence(
   proposal: DocumentProposal,
   segments: readonly TranscriptSegment[]
@@ -104,7 +129,7 @@ export function verifyEvidence(
         actual: seg.timestamp,
       })
     }
-    if (seg.text.trim() !== e.quote.trim()) {
+    if (!quoteMatches(e.quote, seg.text)) {
       violations.push({
         kind: 'quote_mismatch',
         id: e.id,
@@ -137,7 +162,9 @@ export function describeViolation(v: EvidenceViolation): string {
     case 'timestamp_mismatch':
       return `${v.id}: timestamp 불일치 — 주장 ${v.claimed}, 실제 ${v.actual}`
     case 'quote_mismatch':
-      return `${v.id}: quote가 원문과 다르다 — 근거는 원문 그대로여야 한다`
+      // ⛔ 무엇이 다른지 보여준다. "다르다"만 말하면 프롬프트를 고칠 수도,
+      //    모델이 뭘 잘못했는지 판단할 수도 없다 (실제로 겪었다).
+      return `${v.id}: quote가 원문에 없다 — 인용 ${JSON.stringify(v.claimed)}, 원문 ${JSON.stringify(v.actual)}`
     case 'duplicate_evidence_id':
       return `${v.id}: evidence 배열에 중복 ID`
   }

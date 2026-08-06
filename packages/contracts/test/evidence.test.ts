@@ -134,6 +134,65 @@ describe('evidence 배열 자체의 정확도', () => {
     expect(verifyEvidence(p, segments)).toEqual([])
   })
 
+  describe('⛔ 잘라 인용하는 것은 교정이 아니다 (2026-08-06 실측 후 완화)', () => {
+    /*
+     * 예전에는 **완전 일치**를 요구했다. 실측(src_msgvfbti, 1423 세그먼트)에서
+     * 모델이 `11시가 중...`을 `11시가 중`으로 인용했고, **말줄임표 하나 때문에
+     * 근거 48건·결정 7건·할 일 6건이 통째로 막혔다.**
+     *
+     * 규칙의 목적은 "모델이 전사 오류를 교정해서 인용하는 것"을 막는 것이다.
+     * 잘라 인용하는 것은 그 목적과 무관하다.
+     */
+
+    it('말줄임표를 빼고 인용해도 통과한다 — 실제로 겪은 사례', () => {
+      const p = proposalWith({
+        summary: { text: 'x', evidence: ['seg000'] },
+        evidence: [{ id: 'seg000', timestamp: '00:00:00', quote: '오픈은 3월 16일로' }],
+      })
+      expect(verifyEvidence(p, segments)).toEqual([])
+    })
+
+    it('띄어쓰기를 다듬어도 통과한다 — 교정이 아니다', () => {
+      const p = proposalWith({
+        evidence: [
+          { id: 'seg000', timestamp: '00:00:00', quote: '오픈은  3월   16일로 미루죠.' },
+        ],
+      })
+      expect(verifyEvidence(p, segments)).toEqual([])
+    })
+
+    it('⛔ 고쳐 쓰면 여전히 막힌다 — 이게 규칙의 목적이다', () => {
+      const p = proposalWith({
+        evidence: [
+          // 원문은 "미루죠". 모델이 "연기합니다"로 다듬었다
+          { id: 'seg000', timestamp: '00:00:00', quote: '오픈은 3월 16일로 연기합니다.' },
+        ],
+      })
+      expect(verifyEvidence(p, segments).map((v) => v.kind)).toContain(
+        'quote_mismatch'
+      )
+    })
+
+    it('⛔ 빈 인용은 막는다 — 부분 문자열 규칙에서 빈 문자열은 무조건 통과한다', () => {
+      const p = proposalWith({
+        evidence: [{ id: 'seg000', timestamp: '00:00:00', quote: '   ' }],
+      })
+      expect(verifyEvidence(p, segments).map((v) => v.kind)).toContain(
+        'quote_mismatch'
+      )
+    })
+
+    it('무엇이 어긋났는지 오류에 남는다 — "다르다"만으로는 못 고친다', () => {
+      const p = proposalWith({
+        evidence: [{ id: 'seg000', timestamp: '00:00:00', quote: '전혀 다른 말' }],
+      })
+      const v = verifyEvidence(p, segments).find((x) => x.kind === 'quote_mismatch')!
+      const msg = describeViolation(v)
+      expect(msg).toContain('전혀 다른 말')
+      expect(msg).toContain('미루죠')
+    })
+  })
+
   it('중복 ID를 잡는다', () => {
     const e = { id: 'seg000', timestamp: '00:00:00', quote: '오픈은 3월 16일로 미루죠.' }
     const p = proposalWith({ evidence: [e, e] })
@@ -207,15 +266,15 @@ describe('describeViolation — 모든 위반 유형을 설명한다', () => {
     ).toMatch(/timestamp 불일치/)
   })
 
-  it('quote_mismatch', () => {
-    expect(
-      describeViolation({
-        kind: 'quote_mismatch',
-        id: 'seg000',
-        claimed: 'a',
-        actual: 'b',
-      })
-    ).toMatch(/원문 그대로여야 한다/)
+  it('quote_mismatch — 무엇이 어긋났는지 양쪽을 다 보여준다', () => {
+    const msg = describeViolation({
+      kind: 'quote_mismatch',
+      id: 'seg000',
+      claimed: '모델이 쓴 말',
+      actual: '실제 원문',
+    })
+    expect(msg).toContain('모델이 쓴 말')
+    expect(msg).toContain('실제 원문')
   })
 
   it('duplicate_evidence_id', () => {

@@ -13,6 +13,8 @@
 import * as path from 'node:path'
 import { type AppDeps, createApp } from './app.ts'
 import { AudioPublisher } from './audio/publisher.ts'
+import { DEFAULT_PROVENANCE, DocumentQueue } from './documents/queue.ts'
+import { DocumentRunner } from './documents/runner.ts'
 import { RevisionStore } from './revisions/store.ts'
 import { VaultIndex } from './index-db/indexer.ts'
 import { RunArtifactStore } from './runs/store.ts'
@@ -26,6 +28,7 @@ import { VaultWatcher } from './vault/watcher.ts'
 export type Runtime = {
   vault: VaultStore
   revisions: RevisionStore
+  documents: DocumentQueue
   index: VaultIndex
   watcher: VaultWatcher
   sources: SourceRepository
@@ -108,6 +111,19 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     workRoot: path.join(dataRoot, 'work'),
   })
 
+  const documents = new DocumentQueue({
+    runner: new DocumentRunner({
+      profile: process.env.RATATOUILLE_HERMES_PROFILE,
+    }),
+    sources,
+    revisions,
+    runs,
+    stateRoot: path.join(dataRoot, 'document-runs'),
+    provenance: DEFAULT_PROVENANCE,
+  })
+  const recoveredDocs = await documents.load()
+  if (recoveredDocs > 0) console.log(`[boot] AI 정리 ${recoveredDocs}건 복구`)
+
   const deps: AppDeps = {
     sources,
     audio,
@@ -115,6 +131,7 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     transcription,
     runs,
     revisions,
+    documents,
     vault,
     // 지운 회의는 소거하지 않고 여기로 옮긴다. 비우는 것은 사용자가 정한다.
     trashRoot: path.join(dataRoot, 'trash'),
@@ -123,6 +140,7 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
   return {
     vault,
     revisions,
+    documents,
     index,
     watcher,
     sources,
