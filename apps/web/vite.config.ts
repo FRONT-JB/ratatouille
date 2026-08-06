@@ -7,6 +7,12 @@ import { playwright } from '@vitest/browser-playwright'
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    // Tailscale Serve가 이 tailnet 전용 호스트를 http://127.0.0.1:5173으로
+    // 프록시한다. 다른 기기에서 개발 서버에 접근하려면 이 허용 목록이 필요하다.
+    // 공개 인터넷용 Funnel은 활성화하지 않았다.
+    allowedHosts: ['tailnet-host.example'],
+  },
   plugins: [
     tanstackRouter({
       target: 'react',
