@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+import { describeState } from '@ratatouille/contracts'
+import { Badge } from '@/components/ui/badge'
+import { PageHeader } from '@/components/layout/page-header-slot'
 import { ReviewPage } from '../review'
 import { DeleteMeeting } from './delete-meeting'
 import { ProcessingStatus } from './processing-status'
@@ -11,6 +15,7 @@ import {
   fetchSession,
   findSource,
   isProcessing,
+  stageOf,
 } from './session'
 
 /**
@@ -115,16 +120,36 @@ export function ProcessingPage({
     )
   }
 
+  /*
+   * ⛔ **전사가 끝나면 처리 화면이 검수 화면으로 바뀐다.** 둘을 같이 쌓지
+   *    않는다 — 「받은 조각 612개」는 검수할 때 아무 도움이 안 되는데도
+   *    화면 맨 위에서 가장 큰 자리를 차지하고 있었다.
+   */
+  const reviewing = source.job?.jobState === 'completed'
+
   return (
-    <Shell>
-      <ProcessingStatus source={source} onAction={(a) => void onAction(a)} />
-      <TranscriptReviewSlot source={source} fetchFn={fetchFn} />
+    <Shell title={labelFor(source)} source={source}>
+      {reviewing ? (
+        /*
+          ⛔ 처리 수치는 여기 두지 않는다. 「받은 조각 612개」는 결과를 읽는
+             동안에는 방해고, 전사가 이상할 때만 본다 — 그래서 **전사 원문
+             패널 안**으로 옮겼다. 볼 이유가 생기는 자리에 있어야 한다.
+        */
+        <ReviewPage
+          sourceId={source.sourceId}
+          deps={{ fetch: fetchFn }}
+          facts={factsOf(source)}
+        />
+      ) : (
+        <ProcessingStatus source={source} onAction={(a) => void onAction(a)} />
+      )}
+
       {/*
         ⛔ 삭제는 **맨 아래에, 조용하게** 둔다. 되돌릴 수 없는 조작을 주요
            동작 옆에 두면 오클릭이 난다. 그래도 숨기지는 않는다 — 실제로
            「수집 중」에서 멈춘 회의를 화면에서 치울 방법이 없었다.
       */}
-      <div className='border-border mt-4 flex justify-end border-t pt-4'>
+      <div className='flex justify-end'>
         <DeleteMeeting
           sourceId={source.sourceId}
           label={labelFor(source)}
@@ -136,31 +161,76 @@ export function ProcessingPage({
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/**
+ * 화면 껍데기.
+ *
+ * ⛔ **제목은 어느 회의인지 말해야 한다.** 「회의」는 아무것도 말하지 않는다.
+ *    사이드바는 `08/06 11:02`라고 부르는데 본문 제목만 「회의」였다.
+ *
+ * ⛔ **상태말은 여기 한 번만 나온다.** 예전에는 처리 상태·전사 확정 여부·
+ *    AI 정리 상태가 각자 자기 자리에서 같은 말을 반복했다.
+ */
+function Shell({
+  title,
+  source,
+  children,
+}: {
+  title?: string
+  source?: SessionSource
+  children: React.ReactNode
+}) {
+  const phrase = source ? describeState(stageOf(source)) : null
+
   return (
-    <div className='mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-10'>
-      <header className='flex flex-col gap-1'>
-        <h1 className='text-2xl font-semibold'>회의</h1>
-      </header>
+    <div className='mx-auto flex w-full max-w-5xl flex-col gap-8 px-6 pt-3 pb-10 sm:px-10 sm:pb-16'>
+      {/*
+        ⚠️ 위쪽 여백은 `pt-3`만 준다. 제목이 상단 바로 올라가면서 본문 첫 줄
+           위의 큰 여백이 상단 바 높이와 겹쳐 빈 띠처럼 보였다.
+
+        ⛔ 제목을 본문에 큰 글씨로 두지 않는다. 상단 바가 이미 비어 있고,
+           회의 이름은 «지금 어디에 있나»를 알려주는 이정표라 거기가 제자리다.
+           본문 맨 위를 제목이 차지하면 정작 읽을 내용이 아래로 밀린다.
+      */}
+      <PageHeader>
+        <nav
+          className='flex min-w-0 items-center gap-2 text-sm'
+          aria-label='현재 위치'
+        >
+          <span className='text-muted-foreground shrink-0'>회의</span>
+          <ChevronRight className='text-muted-foreground size-3.5 shrink-0' aria-hidden />
+          <h1 className='truncate font-medium'>{title ?? '회의'}</h1>
+          {phrase && (
+            <Badge
+              variant='secondary'
+              className={
+                // ⛔ 확정되지 않은 문구는 확정된 것처럼 두지 않는다
+                phrase.provisional ? 'underline decoration-dotted underline-offset-4' : ''
+              }
+              data-testid='stage-phrase'
+              title={phrase.detail ?? undefined}
+            >
+              {phrase.label}
+            </Badge>
+          )}
+        </nav>
+      </PageHeader>
       {children}
     </div>
   )
 }
 
+
 /**
- * 전사가 끝나면 교정 화면으로 바뀐다.
+ * 처리 수치 — 조각 수, 세그먼트 수, 전사 소요.
  *
- * ⛔ **하나의 route 안에서 전환된다.** 페이지를 옮기지 않는다 —
- *    화면 계약: "녹음 화면과 결과 화면이 한 페이지로 합쳐져 있지 않다"는
- *    녹음/결과 이야기이고, 처리 중과 교정은 **같은 화면의 다른 상태**다.
+ * ⛔ **접었다 펴는 토글로 두지 않는다.** 한 줄짜리 사실 세 개다. 토글은
+ *    누를 값어치가 있는 분량에만 쓴다.
  */
-function TranscriptReviewSlot({
-  source,
-  fetchFn,
-}: {
-  source: SessionSource
-  fetchFn?: FetchLike
-}) {
-  if (source.job?.jobState !== 'completed') return null
-  return <ReviewPage sourceId={source.sourceId} deps={{ fetch: fetchFn }} />
+export function factsOf(s: SessionSource): string {
+  const parts = [`조각 ${s.chunkCount}개`]
+  if (s.job?.segmentCount != null) parts.push(`세그먼트 ${s.job.segmentCount}개`)
+  if (s.job?.elapsedMs != null) {
+    parts.push(`전사 ${(s.job.elapsedMs / 1000).toFixed(1)}초`)
+  }
+  return parts.join(' · ')
 }

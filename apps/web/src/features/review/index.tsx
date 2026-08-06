@@ -1,10 +1,20 @@
-import { useEffect, useState } from 'react'
-import { Lock, PanelRight, X } from 'lucide-react'
+import { useState } from 'react'
+import { Loader2, Lock, PanelRight, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
+import { Skeleton } from '@/components/ui/skeleton'
 import type { FetchLike } from '../processing/session'
 import { useAudioController } from './audio-controller'
 import { AudioPlayer } from './audio-player'
+import { isRunning } from './document'
 import { DocumentResult } from './document-result'
+import { useDocument } from './use-document'
 import { type RevisionView, type SaveState, editedCount, isLocked } from './revision'
 import { TranscriptEditor } from './transcript-editor'
 import { useRevision } from './use-revision'
@@ -22,9 +32,12 @@ import { useRevision } from './use-revision'
  */
 export function ReviewPage({
   sourceId,
+  facts,
   deps,
 }: {
   sourceId: string
+  /** 처리 수치 한 줄. 전사 원문 패널의 부제로 들어간다 */
+  facts?: string
   deps?: { fetch?: FetchLike; saveDelayMs?: number; pollMs?: number }
 }) {
   const rev = useRevision(sourceId, deps)
@@ -38,21 +51,21 @@ export function ReviewPage({
       </p>
     )
   }
-  if (!rev.data) {
-    return <p className='text-muted-foreground text-sm'>교정본을 불러오는 중…</p>
-  }
+  // ⛔ 「불러오는 중…」 한 줄로 두지 않는다. 뼈대를 보여주면 무엇이 올지 알 수
+  //    있고, 멈춘 화면과 구분된다.
+  if (!rev.data) return <ReviewSkeleton />
 
   const locked = isLocked(rev.data.revisionState)
   const changed = editedCount(rev.data.segments)
 
   /*
-   * ⛔ **근거를 누르면 전사가 열린다.** 각주는 인용문 한 줄만 보여준다.
-   *    "정말 그렇게 말했나"를 판단하려면 앞뒤 맥락이 필요하고, 그건 전사문에만
-   *    있다. 재생만 하고 화면을 안 열면 사용자가 직접 찾아야 한다.
+   * ⛔ **근거를 여는 것과 듣는 것과 전사를 펼치는 것은 서로 다른 조작이다.**
+   *    예전에는 각주를 누르면 곧바로 소리가 나고 전사 서랍이 열리며 목록이
+   *    한참을 스크롤해 내려갔다. 하나를 눌렀는데 세 가지가 한꺼번에 일어났다.
    */
-  const seekFromEvidence = (ms: number) => {
+  const openTranscriptAt = (ms: number) => {
     controller.seek(ms)
-    if (locked) setTranscriptOpen(true)
+    setTranscriptOpen(true)
   }
 
   const panel = (
@@ -61,7 +74,7 @@ export function ReviewPage({
       locked={locked}
       changed={changed}
       currentMs={controller.currentMs}
-      onSeek={controller.seek}
+      onSeek={controller.playAt}
     />
   )
 
@@ -85,13 +98,7 @@ export function ReviewPage({
             audioRef={audioRef}
             bind={bind}
           />
-          <AiResultSlot
-            locked={locked}
-            sourceId={sourceId}
-            revision={rev.data}
-            onSeek={seekFromEvidence}
-            deps={deps}
-          />
+          <AiLocked />
         </div>
         <div className='flex max-h-[70vh] min-w-0 flex-col gap-3'>{panel}</div>
       </div>
@@ -99,7 +106,7 @@ export function ReviewPage({
   }
 
   return (
-    <div className='flex flex-col gap-4' data-testid='review-layout'>
+    <div className='flex flex-col gap-8' data-testid='review-layout'>
       <AudioPlayer
         sourceId={sourceId}
         controller={controller}
@@ -107,43 +114,129 @@ export function ReviewPage({
         bind={bind}
       />
 
-      <div className='flex flex-wrap items-center gap-2'>
-        <span className='text-state-success text-sm'>전사 확정됨</span>
-        <Button
-          variant='outline'
-          size='sm'
-          className='ml-auto'
-          onClick={() => setTranscriptOpen(true)}
-          data-testid='open-transcript'
-        >
-          <PanelRight className='size-4' aria-hidden />
-          전사 원문
-        </Button>
-        {/* ⛔ 되돌릴 길은 서랍 안에 숨기지 않는다. 늘 보이는 자리에 둔다 */}
-        <Button variant='outline' size='sm' onClick={() => void rev.reopen()}>
-          전사 수정
-        </Button>
-      </div>
-
       {rev.error && (
         <p className='text-state-danger text-sm' role='alert'>
           {rev.error}
         </p>
       )}
 
-      <AiResultSlot
-        locked={locked}
+      {/*
+        ⛔ **확정 뒤에만 마운트한다.** 안에서 결과를 조회하므로, 마운트하는
+           것 자체가 확정 전 조회 금지(review-contract 6절)를 어긴다.
+      */}
+      <ApprovedView
         sourceId={sourceId}
         revision={rev.data}
-        onSeek={seekFromEvidence}
+        onSeek={controller.seek}
+        onPlay={controller.playAt}
+        onOpenTranscriptAt={openTranscriptAt}
+        onOpenTranscript={() => setTranscriptOpen(true)}
+        onReopen={() => void rev.reopen()}
         deps={deps}
       />
 
-      {transcriptOpen && (
-        <TranscriptDrawer onClose={() => setTranscriptOpen(false)}>
-          {panel}
-        </TranscriptDrawer>
-      )}
+      <TranscriptDrawer
+        open={transcriptOpen}
+        onOpenChange={setTranscriptOpen}
+        facts={facts}
+      >
+        {transcriptOpen && panel}
+      </TranscriptDrawer>
+    </div>
+  )
+}
+
+/**
+ * 확정 뒤의 화면 — 조작 한 줄 + 결과.
+ *
+ * ⛔ **조작을 한 줄에 모은다.** 예전에는 「전사 원문」·「전사 수정」이 한 줄,
+ *    「다시 정리」가 또 한 줄, 그 사이에 상태말이 두 번 반복됐다. 무엇을
+ *    할 수 있는지 한눈에 안 들어왔다.
+ *
+ * 그래서 결과 조회를 이 컴포넌트가 소유한다 — 버튼과 상태가 한 곳에 있어야
+ * 한 줄로 모을 수 있다.
+ */
+function ApprovedView({
+  sourceId,
+  revision,
+  onSeek,
+  onPlay,
+  onOpenTranscriptAt,
+  onOpenTranscript,
+  onReopen,
+  deps,
+}: {
+  sourceId: string
+  revision: RevisionView
+  onSeek: (ms: number) => void
+  onPlay: (ms: number) => void
+  onOpenTranscriptAt: (ms: number) => void
+  onOpenTranscript: () => void
+  onReopen: () => void
+  deps?: { fetch?: FetchLike; pollMs?: number }
+}) {
+  const doc = useDocument(sourceId, { fetch: deps?.fetch, pollMs: deps?.pollMs })
+  const state = doc.view?.documentRunState ?? null
+  const running = isRunning(state)
+
+  return (
+    <div className='flex flex-col gap-6'>
+      <div className='flex flex-wrap items-center gap-2'>
+        <Button
+          variant='secondary'
+          size='sm'
+          onClick={onOpenTranscript}
+          data-testid='open-transcript'
+        >
+          <PanelRight className='size-4' aria-hidden />
+          전사 원문
+        </Button>
+        {/* ⛔ 되돌릴 길은 서랍 안에 숨기지 않는다. 늘 보이는 자리에 둔다 */}
+        <Button variant='ghost' size='sm' onClick={onReopen}>
+          전사 수정
+        </Button>
+
+        <div className='ml-auto flex items-center gap-3'>
+          {/*
+            진행 표시는 **버튼 옆**에 둔다. 페이지 배지도 같은 말을 하지만,
+            도는 동안에는 방금 누른 자리에서 반응이 보여야 한다.
+          */}
+          {running && (
+            <span className='text-muted-foreground flex items-center gap-1.5 text-sm'>
+              <Loader2 className='size-3.5 animate-spin' aria-hidden />
+              정리 중
+            </span>
+          )}
+          {!running && doc.view?.elapsedMs != null && (
+            <span className='text-muted-foreground text-sm tabular-nums'>
+              {(doc.view.elapsedMs / 1000).toFixed(1)}초
+            </span>
+          )}
+          {/* ⛔ 도는 동안에는 시작 버튼이 아예 없다. 두 번 돌리지 않는다 */}
+          {!running && (
+            <Button
+              size='sm'
+              variant={doc.view?.proposal ? 'ghost' : 'default'}
+              onClick={() => void doc.generate()}
+              data-testid='generate'
+            >
+              <Sparkles className='size-4' aria-hidden />
+              {doc.view?.proposal || state ? '다시 정리' : 'AI 정리 시작'}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <DocumentResult
+        view={doc.view}
+        error={doc.error}
+        revisionId={revision.revisionId}
+        segments={revision.segments}
+        onSeek={onSeek}
+        onPlay={onPlay}
+        onOpenTranscript={onOpenTranscriptAt}
+        onRetry={() => void doc.generate()}
+      />
     </div>
   )
 }
@@ -151,45 +244,40 @@ export function ReviewPage({
 /**
  * 전사 원문 서랍.
  *
- * ⛔ **닫는 길이 둘 이상이어야 한다.** 바깥을 누르든 Esc를 누르든 닫힌다.
- *    화면을 덮는 것에서 빠져나오지 못하면 그건 갇힌 것이다.
+ * ⛔ 직접 만든 고정 패널에서 shadcn `Sheet`로 바꿨다. 포커스 가두기·Esc·
+ *    바깥 클릭·애니메이션을 손으로 다시 만들 이유가 없고, 손으로 만들면
+ *    빠뜨린다.
  */
 function TranscriptDrawer({
-  onClose,
+  open,
+  onOpenChange,
+  facts,
   children,
 }: {
-  onClose: () => void
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** 처리 수치. ⛔ 토글로 감싸지 않는다 — 한 줄짜리 사실 셋이다 */
+  facts?: string
   children: React.ReactNode
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   return (
-    <>
-      <div
-        className='fixed inset-0 z-40 bg-black/20'
-        onClick={onClose}
-        aria-hidden
-      />
-      <aside
-        className='bg-background border-border fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col gap-3 border-l p-4 shadow-lg'
-        role='dialog'
-        aria-label='전사 원문'
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side='right'
+        className='flex w-full flex-col gap-3 p-4 sm:max-w-md'
         data-testid='transcript-drawer'
       >
-        <div className='flex justify-end'>
-          <Button variant='ghost' size='icon' onClick={onClose} aria-label='닫기'>
-            <X className='size-4' aria-hidden />
-          </Button>
-        </div>
+        <SheetHeader className='gap-1 p-0'>
+          <SheetTitle className='text-sm font-medium'>전사 원문</SheetTitle>
+          {facts && (
+            <SheetDescription className='font-mono text-xs tabular-nums'>
+              {facts}
+            </SheetDescription>
+          )}
+        </SheetHeader>
         {children}
-      </aside>
-    </>
+      </SheetContent>
+    </Sheet>
   )
 }
 
@@ -216,10 +304,16 @@ function TranscriptPanel({
 
   return (
     <>
-      <header className='flex flex-wrap items-baseline justify-between gap-2'>
-        <h2 className='text-sm font-medium'>{locked ? '전사 원문' : '전사 교정'}</h2>
-        <SaveIndicator state={rev.save} locked={locked} changed={changed} />
-      </header>
+      {/*
+        ⛔ 확정 뒤에는 제목을 여기서 그리지 않는다. 서랍(`SheetTitle`)이 이미
+           「전사 원문」이라고 말한다 — 같은 제목이 두 줄로 겹쳐 보였다.
+      */}
+      {!locked && (
+        <header className='flex flex-wrap items-baseline justify-between gap-2'>
+          <h2 className='text-sm font-medium'>전사 교정</h2>
+          <SaveIndicator state={rev.save} locked={locked} changed={changed} />
+        </header>
+      )}
 
       {!locked && rev.error && (
         <p className='text-state-danger text-sm' role='alert'>
@@ -259,55 +353,27 @@ function TranscriptPanel({
 }
 
 /**
- * AI 결과 자리.
+ * 확정 전 안내.
  *
- * ⛔ **확정 전에는 잠금 상태다.** 자리를 비워두면 "곧 나오나 보다"로 읽히고,
- *    가짜 내용을 채우면 확정 전 결과를 보여주는 계약 위반이 된다.
- *    무엇이 막고 있고 무엇을 하면 열리는지 말한다.
- *
- * ⛔ **확정 전에는 `DocumentResult`를 마운트하지 않는다.** 마운트하면 그 자리에서
- *    결과를 조회하고, 조회 자체가 계약 위반이다. 안쪽에 조건을 또 두지 않고
- *    **여기서 마운트하지 않는 것으로** 막는다 — 판단이 두 곳에 있으면 어긋난다.
+ * ⛔ 자리를 비워두면 "곧 나오나 보다"로 읽히고, 가짜 내용을 채우면 확정 전
+ *    결과를 보여주는 계약 위반이 된다. 무엇이 막고 있고 무엇을 하면 열리는지
+ *    말한다.
  */
-function AiResultSlot({
-  locked,
-  sourceId,
-  revision,
-  onSeek,
-  deps,
-}: {
-  locked: boolean
-  sourceId: string
-  revision: RevisionView
-  onSeek: (ms: number) => void
-  deps?: { fetch?: FetchLike; pollMs?: number }
-}) {
-  if (!locked) {
-    return (
-      <section
-        className='border-border text-muted-foreground flex flex-col items-start gap-2 rounded-lg border border-dashed p-6 text-sm'
-        data-testid='ai-locked'
-      >
-        <span className='flex items-center gap-2 font-medium'>
-          <Lock className='size-4' aria-hidden />
-          전사 확정 후 생성
-        </span>
-        <p>
-          회의 요약과 Action Item은 전사를 확정한 뒤에 만듭니다. 확정되지 않은
-          전사에서 뽑은 결과는 근거가 없습니다.
-        </p>
-      </section>
-    )
-  }
-
+function AiLocked() {
   return (
-    <DocumentResult
-      sourceId={sourceId}
-      revisionId={revision.revisionId}
-      segments={revision.segments}
-      onSeek={onSeek}
-      deps={{ fetch: deps?.fetch, pollMs: deps?.pollMs }}
-    />
+    <section
+      className='border-border text-muted-foreground flex flex-col items-start gap-2 rounded-lg border border-dashed p-6 text-sm'
+      data-testid='ai-locked'
+    >
+      <span className='text-foreground flex items-center gap-2 font-medium'>
+        <Lock className='size-4' aria-hidden />
+        전사 확정 후 생성
+      </span>
+      <p className='max-w-[60ch]'>
+        회의 요약과 Action Item은 전사를 확정한 뒤에 만듭니다. 확정되지 않은
+        전사에서 뽑은 결과는 근거가 없습니다.
+      </p>
+    </section>
   )
 }
 
@@ -339,5 +405,23 @@ function SaveIndicator({
     <span className='text-muted-foreground text-xs'>
       {changed > 0 ? '' : '문장을 눌러 고칠 수 있습니다'}
     </span>
+  )
+}
+
+/** ⛔ 로딩은 스켈레톤으로 보여준다. 빈 화면은 멈춘 화면과 구분되지 않는다. */
+function ReviewSkeleton() {
+  return (
+    <div className='flex flex-col gap-8' data-testid='review-skeleton'>
+      <Skeleton className='h-24 w-full rounded-lg' />
+      <div className='flex gap-2'>
+        <Skeleton className='h-8 w-24' />
+        <Skeleton className='h-8 w-20' />
+      </div>
+      <div className='flex flex-col gap-3'>
+        <Skeleton className='h-4 w-20' />
+        <Skeleton className='h-4 w-full' />
+        <Skeleton className='h-4 w-10/12' />
+      </div>
+    </div>
   )
 }

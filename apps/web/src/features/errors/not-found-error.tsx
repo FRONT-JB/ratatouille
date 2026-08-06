@@ -7,17 +7,16 @@ export function NotFoundError() {
   return (
     <div className='h-svh'>
       <div className='m-auto flex h-full w-full flex-col items-center justify-center gap-2'>
-        <h1 className='text-[7rem] font-bold'>404</h1>
-        <span className='font-medium'>Oops! Page Not Found!</span>
-        <p className='text-center text-muted-foreground'>
-          It seems like the page you're looking for <br />
-          does not exist or might have been removed.
+        <p className='text-muted-foreground font-mono text-sm'>404</p>
+        <span className='text-lg font-medium'>없는 화면입니다</span>
+        <p className='text-muted-foreground text-center'>
+          주소가 바뀌었거나 회의가 삭제되었을 수 있습니다.
         </p>
         <div className='mt-6 flex gap-4'>
           <Button variant='outline' onClick={() => history.go(-1)}>
-            Go Back
+            뒤로 가기
           </Button>
-          <Button onClick={() => navigate({ to: '/' })}>Back to Home</Button>
+          <Button onClick={() => navigate({ to: '/' })}>처음으로</Button>
         </div>
       </div>
     </div>

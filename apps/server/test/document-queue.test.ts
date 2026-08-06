@@ -432,6 +432,20 @@ describe('재시작 복구', () => {
   })
 })
 
+describe('⛔ 「최신」은 만든 시각이다', () => {
+  it('열 번을 넘겨도 마지막에 만든 것이 나온다', async () => {
+    // id 문자열로 정렬하면 `_9`가 `_12`보다 뒤로 간다. 실제로 12번째 실행을
+    // 만들었는데 화면은 9번째를 보여줬다.
+    await withRevision()
+    let last = ''
+    for (let i = 0; i < 11; i++) {
+      last = (await queue.enqueue('src_01')).id
+    }
+    expect(queue.latestFor('src_01')!.id).toBe(last)
+    expect(last).toContain('_11')
+  })
+})
+
 describe('중복 실행', () => {
   it('같은 회의를 두 번 동시에 돌리지 않는다', async () => {
     await withRevision()

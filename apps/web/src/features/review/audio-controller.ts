@@ -11,8 +11,16 @@
 import { useCallback, useRef, useState } from 'react'
 
 export type AudioController = {
-  /** 밀리초 지점으로 이동하고 재생한다 */
+  /**
+   * 그 지점으로 **옮기기만** 한다. 재생 상태는 건드리지 않는다.
+   *
+   * ⛔ 예전에는 여기서 항상 재생했다. 근거를 확인하려고 각주를 눌렀을 뿐인데
+   *    소리가 터져 나왔다 — 읽는 중에 재생이 시작되는 건 방해다.
+   *    듣고 싶으면 `playAt`을 부른다.
+   */
   seek: (ms: number) => void
+  /** 그 지점으로 옮기고 **재생한다.** 사용자가 「듣기」를 눌렀을 때만 */
+  playAt: (ms: number) => void
   /** 현재 재생 위치(ms). 재생 전에는 0 */
   currentMs: number
   playing: boolean
@@ -46,12 +54,18 @@ export function useAudioController(): {
     if (!el) return
     el.currentTime = ms / 1000
     setCurrentMs(ms)
-    // 눌렀는데 안 들리면 눌린 것인지 알 수 없다. 재생까지 한다.
-    void el.play().catch(() => undefined)
   }, [])
 
+  const playAt = useCallback(
+    (ms: number) => {
+      seek(ms)
+      void audioRef.current?.play().catch(() => undefined)
+    },
+    [seek]
+  )
+
   return {
-    controller: { seek, currentMs, playing, error, duration },
+    controller: { seek, playAt, currentMs, playing, error, duration },
     audioRef,
     bind: {
       onTimeUpdate: () =>

@@ -140,10 +140,15 @@ export class DocumentQueue {
     return this.runs.get(runId) ?? null
   }
 
+  /**
+   * ⛔ **id 문자열로 정렬하지 않는다.** `doc_..._9`가 `doc_..._12`보다 뒤로
+   *    간다 — 사전순이라 `9` > `1`이다. 실제로 12번째 실행을 만들었는데
+   *    화면은 9번째를 보여줬다. 「최신」은 만든 시각이다.
+   */
   listFor(sourceId: string): DocumentRun[] {
     return [...this.runs.values()]
       .filter((r) => r.sourceId === sourceId)
-      .sort((a, b) => a.id.localeCompare(b.id))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   }
 
   latestFor(sourceId: string): DocumentRun | null {

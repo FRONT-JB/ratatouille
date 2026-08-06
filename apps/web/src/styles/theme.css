@@ -147,9 +147,9 @@
 }
 
 @theme inline {
-  /* ── 서체 ── Paperlogy로 통일 */
+  /* ── 서체 ── Pretendard로 통일 */
   --font-sans:
-    'Paperlogy', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Pretendard Variable', -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
     'Segoe UI', sans-serif;
   --font-mono:
     ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, monospace;

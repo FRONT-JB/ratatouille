@@ -56,6 +56,7 @@ describe('근거 해석', () => {
       timestamp: '00:00:04',
       quote: '3월 16일로 하죠.',
       startMs: 4120,
+      index: 1,
       resolved: true,
     })
   })

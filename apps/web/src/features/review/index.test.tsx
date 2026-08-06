@@ -285,6 +285,68 @@ describe('⛔ 확정하면 잠긴다', () => {
   })
 })
 
+describe('⛔ AI 정리 조작은 한 줄에 있다', () => {
+  const approvedWith = async (document: unknown) => {
+    const s = server(REVISION(), document)
+    const r = await setup(s)
+    await r.screen.getByTestId('approve-transcript').click()
+    await vi.waitFor(() =>
+      expect(r.screen.container.querySelector('[data-testid=ai-result]')).toBeTruthy()
+    )
+    return r
+  }
+
+  it('⛔ 자동으로 만들지 않는다 — 사용자가 시작한다', async () => {
+    const { calls } = await approvedWith(NO_DOCUMENT)
+    expect(calls.filter((c) => c.url.includes('/document') && c.method === 'POST')).toEqual(
+      []
+    )
+  })
+
+  it('시작 버튼이 조작 줄에 있다', async () => {
+    const { screen } = await approvedWith(NO_DOCUMENT)
+    await expect
+      .element(screen.getByRole('button', { name: 'AI 정리 시작' }))
+      .toBeInTheDocument()
+  })
+
+  it('결과가 있으면 「다시 정리」다', async () => {
+    const { screen } = await approvedWith(WITH_DOCUMENT)
+    await expect
+      .element(screen.getByRole('button', { name: '다시 정리' }))
+      .toBeInTheDocument()
+  })
+
+  it('누르면 만든다', async () => {
+    const { screen, calls } = await approvedWith(NO_DOCUMENT)
+    await screen.getByTestId('generate').click()
+
+    await vi.waitFor(() =>
+      expect(
+        calls.some((c) => c.url.includes('/document') && c.method === 'POST')
+      ).toBe(true)
+    )
+  })
+
+  it('⛔ 도는 동안에는 시작 버튼이 없다 — 같은 회의를 두 번 돌리지 않는다', async () => {
+    const { screen } = await approvedWith({
+      ...WITH_DOCUMENT,
+      documentRunState: 'documenting',
+      proposal: null,
+    })
+    expect(screen.container.querySelector('[data-testid=generate]')).toBeNull()
+  })
+
+  it('도는 동안에는 도는 중이라고 말한다', async () => {
+    const { screen } = await approvedWith({
+      ...WITH_DOCUMENT,
+      documentRunState: 'documenting',
+      proposal: null,
+    })
+    await expect.element(screen.getByText('정리 중')).toBeInTheDocument()
+  })
+})
+
 describe('⛔ 확정 뒤에는 검수가 주 작업이다', () => {
   const approved = async () => {
     const s = await setup()
@@ -303,8 +365,8 @@ describe('⛔ 확정 뒤에는 검수가 주 작업이다', () => {
   })
 
   it('전사는 닫혀 있다', async () => {
-    const { screen } = await approved()
-    expect(screen.container.querySelector('[data-testid=transcript-drawer]')).toBeNull()
+    await approved()
+    expect(document.querySelector('[data-testid=transcript-drawer]')).toBeNull()
   })
 
   it('열어서 볼 수 있다', async () => {
@@ -322,7 +384,7 @@ describe('⛔ 확정 뒤에는 검수가 주 작업이다', () => {
     await screen.getByRole('button', { name: '닫기' }).click()
 
     await vi.waitFor(() =>
-      expect(screen.container.querySelector('[data-testid=transcript-drawer]')).toBeNull()
+      expect(document.querySelector('[data-testid=transcript-drawer]')).toBeNull()
     )
   })
 
@@ -334,9 +396,22 @@ describe('⛔ 확정 뒤에는 검수가 주 작업이다', () => {
       .toBeInTheDocument()
   })
 
-  it('⛔ 각주를 누르면 전사가 열리고 그 지점으로 간다', async () => {
-    // 각주는 인용문 한 줄만 보여준다. "정말 그렇게 말했나"는 앞뒤 맥락이
-    // 있어야 판단할 수 있고, 그건 전사문에만 있다.
+  it('⛔ 각주를 눌러도 전사가 튀어나오지 않는다', async () => {
+    // 하나를 눌렀는데 소리가 나고 서랍이 열리고 목록이 스크롤되면, 무엇을
+    // 한 것인지 알 수 없다. 각주는 근거를 보여줄 뿐이다.
+    const s = server(REVISION(), WITH_DOCUMENT)
+    const { screen } = await setup(s)
+    await screen.getByTestId('approve-transcript').click()
+    await vi.waitFor(() =>
+      expect(screen.container.querySelector('button[data-cite=seg_1]')).toBeTruthy()
+    )
+
+    await screen.getByRole('button', { name: /근거 1/ }).first().click()
+    await expect.element(screen.getByTestId('footnote-card')).toBeInTheDocument()
+    expect(document.querySelector('[data-testid=transcript-drawer]')).toBeNull()
+  })
+
+  it('「전사에서 보기」를 눌러야 전사가 열리고 그 지점으로 간다', async () => {
     const s = server(REVISION(), WITH_DOCUMENT)
     const { screen } = await setup(s)
     await screen.getByTestId('approve-transcript').click()
@@ -345,7 +420,8 @@ describe('⛔ 확정 뒤에는 검수가 주 작업이다', () => {
     )
 
     const audio = screen.container.querySelector('audio') as HTMLAudioElement
-    await screen.getByRole('button', { name: /00:00:02부터 듣기/ }).first().click()
+    await screen.getByRole('button', { name: /근거 1/ }).first().click()
+    await screen.getByTestId('open-in-transcript').click()
 
     await expect
       .element(screen.getByRole('dialog', { name: '전사 원문' }))
@@ -358,9 +434,10 @@ describe('⛔ 확정 뒤에는 검수가 주 작업이다', () => {
     await screen.getByTestId('open-transcript').click()
 
     await vi.waitFor(() =>
-      expect(screen.container.querySelector('[data-testid=transcript-drawer]')).toBeTruthy()
+      // ⚠️ Sheet는 portal로 나간다
+      expect(document.querySelector('[data-testid=transcript-drawer]')).toBeTruthy()
     )
-    expect(screen.container.querySelectorAll('textarea').length).toBe(0)
+    expect(document.querySelectorAll('textarea').length).toBe(0)
   })
 })
 

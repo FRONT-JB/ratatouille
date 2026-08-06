@@ -5,6 +5,7 @@ import { LayoutProvider } from '@/context/layout-provider'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import { Header } from '@/components/layout/header'
+import { PageHeaderSlotProvider } from '@/components/layout/page-header-slot'
 import { SkipToMain } from '@/components/skip-to-main'
 
 type AppLayoutProps = {
@@ -44,8 +45,17 @@ export function AppLayout({ children }: AppLayoutProps) {
             SidebarTrigger가 유일한 진입점이다. 제거하면 모바일에서 내비게이션이
             완전히 막힌다 (PLAN.md 순서 1 완료 조건).
           */}
-          <Header />
-          {children ?? <Outlet />}
+          <PageHeaderSlotProvider>
+            {(slot) => (
+              <>
+                <Header>
+                  {/* 페이지가 여기에 breadcrumb을 넣는다 */}
+                  <div ref={slot} className='flex min-w-0 items-center gap-2' />
+                </Header>
+                {children ?? <Outlet />}
+              </>
+            )}
+          </PageHeaderSlotProvider>
         </SidebarInset>
       </SidebarProvider>
     </LayoutProvider>

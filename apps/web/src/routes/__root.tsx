@@ -18,7 +18,12 @@ export const Route = createRootRouteWithContext<{
         <Toaster duration={5000} />
         {import.meta.env.MODE === 'development' && (
           <>
-            <ReactQueryDevtools buttonPosition='bottom-left' />
+            {/*
+              ⛔ 왼쪽 아래에 두지 않는다. 그 자리는 사이드바 footer이고,
+                 devtools 버튼이 **테마 토글을 완전히 덮고 있었다.**
+                 개발 도구가 제품 조작을 가리면 안 된다.
+            */}
+            <ReactQueryDevtools buttonPosition='bottom-right' />
             <TanStackRouterDevtools position='bottom-right' />
           </>
         )}

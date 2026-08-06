@@ -58,6 +58,8 @@ export type Citation = {
   quote: string
   /** 재생 위치. 전사 세그먼트에서 온다 */
   startMs: number | null
+  /** 전사문에서 몇 번째 줄인가. 앞뒤 맥락을 꺼낼 때 쓴다 */
+  index: number | null
   resolved: boolean
 }
 
@@ -83,21 +85,22 @@ export function citationsOf(
   segments: readonly SegmentLike[]
 ): Citation[] {
   const byEvidence = new Map(evidence.map((e) => [e.id, e]))
-  const bySegment = new Map(segments.map((s) => [s.id, s]))
+  const bySegment = new Map(segments.map((s, i) => [s.id, { seg: s, i }]))
   const seen = new Set<string>()
 
   const out: Citation[] = []
   for (const id of ids) {
     if (seen.has(id)) continue
     seen.add(id)
-    const seg = bySegment.get(id)
+    const hit = bySegment.get(id)
     const ev = byEvidence.get(id)
     out.push({
       id,
-      timestamp: ev?.timestamp ?? seg?.timestamp ?? '',
-      quote: ev?.quote ?? seg?.text ?? '',
-      startMs: seg?.startMs ?? null,
-      resolved: seg !== undefined,
+      timestamp: ev?.timestamp ?? hit?.seg.timestamp ?? '',
+      quote: ev?.quote ?? hit?.seg.text ?? '',
+      startMs: hit?.seg.startMs ?? null,
+      index: hit?.i ?? null,
+      resolved: hit !== undefined,
     })
   }
   return out
@@ -114,6 +117,29 @@ export function footnoteNumbers(
   evidence: readonly EvidenceEntry[]
 ): Map<string, number> {
   return new Map(evidence.map((e, i) => [e.id, i + 1]))
+}
+
+/**
+ * 근거 앞뒤 몇 줄.
+ *
+ * ⛔ **각주 하나로는 검수할 수 없다.** 인용문 한 줄만 보고 "정말 그렇게
+ *    말했나"를 판단할 수는 없다. 그렇다고 매번 1423줄짜리 전사를 열게 하면
+ *    읽는 흐름이 끊긴다 — 흔한 경우는 그 자리에서 끝나야 한다.
+ */
+export function contextAround(
+  segments: readonly SegmentLike[],
+  index: number | null,
+  span = 2
+): { id: string; timestamp: string; text: string; isCited: boolean }[] {
+  if (index === null) return []
+  return segments
+    .slice(Math.max(0, index - span), index + span + 1)
+    .map((s, i) => ({
+      id: s.id,
+      timestamp: s.timestamp,
+      text: s.text,
+      isCited: Math.max(0, index - span) + i === index,
+    }))
 }
 
 /** 지금 돌고 있나. 도는 동안에는 다시 요청하지 않는다. */

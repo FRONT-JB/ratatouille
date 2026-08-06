@@ -1,18 +1,25 @@
-import { AlertTriangle, KeyRound, Loader2, Sparkles } from 'lucide-react'
+import { AlertTriangle, KeyRound, ListTree, Play } from 'lucide-react'
 import { UNSET_LABEL, splitCitations } from '@ratatouille/contracts'
 import { Button } from '@/components/ui/button'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   type Citation,
   type DocumentView,
   SECTIONS,
   citationsOf,
-  describeRunState,
+  contextAround,
   footnoteNumbers,
   isRunning,
   isStale,
 } from './document'
 import type { RevisionSegmentView } from './revision'
-import { type DocumentDeps, useDocument } from './use-document'
 
 /**
  * AI 정리 결과 — 회의 요약 / 결정 사항 / Action Item / 원문 근거.
@@ -25,23 +32,32 @@ import { type DocumentDeps, useDocument } from './use-document'
  *
  * ⛔ **전사를 건드릴 수단이 여기 없다.** 결과 생성이 실패해도 사람이 고친
  *    전사는 그대로 남아야 한다.
+ *
+ * ⛔ **상태말도 조작 버튼도 여기 없다.** 부모(`ApprovedView`)가 한 줄에 모아
+ *    갖는다. 여기서 또 그리면 같은 말이 화면에 두 번 나온다.
  */
 export function DocumentResult({
-  sourceId,
+  view,
+  error,
   revisionId,
   segments,
   onSeek,
-  deps,
+  onPlay,
+  onOpenTranscript,
+  onRetry,
 }: {
-  sourceId: string
+  view: DocumentView | null
+  error: string | null
   /** 지금 확정본. 결과가 다른 교정본에서 나왔으면 오래된 것이다 */
   revisionId: string
   segments: readonly RevisionSegmentView[]
   onSeek: (ms: number) => void
-  deps?: DocumentDeps
+  /** 「여기부터 듣기」. ⛔ 이것 말고는 소리를 내지 않는다 */
+  onPlay: (ms: number) => void
+  /** 「전사에서 보기」 */
+  onOpenTranscript: (ms: number) => void
+  onRetry: () => void
 }) {
-  const { view, error, generate } = useDocument(sourceId, deps)
-
   if (error && !view) {
     return (
       <p className='text-state-danger text-sm' role='alert'>
@@ -49,38 +65,45 @@ export function DocumentResult({
       </p>
     )
   }
-  if (!view) {
-    return <p className='text-muted-foreground text-sm'>정리 결과를 확인하는 중…</p>
-  }
+  // ⛔ 빈 화면을 두지 않는다. 무엇이 어디에 나올지 미리 보여준다.
+  if (!view) return <ResultSkeleton />
 
   const state = view.documentRunState
   const running = isRunning(state)
-  const stale = isStale(view, revisionId)
 
   return (
-    <div className='flex flex-col gap-4' data-testid='ai-result'>
-      <RunHeader
-        view={view}
-        stale={stale}
-        onGenerate={() => void generate()}
-      />
-
+    <div className='flex flex-col gap-8' data-testid='ai-result'>
       {error && (
         <p className='text-state-danger text-sm' role='alert'>
           {error}
         </p>
       )}
 
-      {state === 'auth_required' && <ReauthNotice onRetry={() => void generate()} />}
+      {isStale(view, revisionId) && (
+        // ⛔ 오래됐다고 지우지 않는다. 사람이 보고 다시 만들지 판단한다.
+        <p className='text-state-warning text-sm' data-testid='stale'>
+          재검토 필요 — 이 결과가 나온 뒤에 전사를 다시 확정했습니다.
+        </p>
+      )}
 
+      {state === 'auth_required' && <ReauthNotice onRetry={onRetry} />}
       {state === 'failed_retryable' && (
-        <FailureNotice view={view} onRetry={() => void generate()} />
+        <FailureNotice view={view} onRetry={onRetry} />
       )}
 
       {view.proposal ? (
-        <Sections proposal={view.proposal} segments={segments} onSeek={onSeek} />
+        <Sections
+          proposal={view.proposal}
+          segments={segments}
+          onSeek={onSeek}
+          onPlay={onPlay}
+          onOpenTranscript={onOpenTranscript}
+        />
+      ) : running ? (
+        // ⛔ 도는 동안 내용 자리를 비워두지 않는다. 멈춘 것처럼 보인다.
+        <ResultSkeleton />
       ) : (
-        !running && state === null && <Intro />
+        state === null && <Intro />
       )}
     </div>
   )
@@ -97,67 +120,6 @@ function Intro() {
         ))}
       </ul>
     </section>
-  )
-}
-
-function RunHeader({
-  view,
-  stale,
-  onGenerate,
-}: {
-  view: DocumentView
-  stale: boolean
-  onGenerate: () => void
-}) {
-  const state = view.documentRunState
-  const running = isRunning(state)
-  const phrase = state ? describeRunState(state) : null
-
-  return (
-    <header className='flex flex-wrap items-center gap-2'>
-      <h2 className='text-sm font-medium'>AI 정리</h2>
-
-      {phrase && (
-        <span
-          className={`text-xs ${running ? 'text-muted-foreground' : 'text-state-success'} ${
-            // ⛔ 확정되지 않은 문구는 확정된 것처럼 두지 않는다(phrasing.ts).
-            phrase.provisional ? 'underline decoration-dotted underline-offset-4' : ''
-          }`}
-          data-provisional={phrase.provisional || undefined}
-          title={phrase.detail ?? undefined}
-        >
-          {running && <Loader2 className='mr-1 inline size-3 animate-spin' aria-hidden />}
-          {phrase.label}
-        </span>
-      )}
-
-      {stale && (
-        // ⛔ 오래됐다고 지우지 않는다. 사람이 보고 다시 만들지 판단한다.
-        <span className='text-state-warning rounded border border-current px-1.5 py-0.5 text-xs'>
-          재검토 필요 — 전사를 다시 확정했습니다
-        </span>
-      )}
-
-      {view.elapsedMs !== null && !running && (
-        <span className='text-muted-foreground text-xs tabular-nums'>
-          {(view.elapsedMs / 1000).toFixed(1)}초
-        </span>
-      )}
-
-      {/* ⛔ 도는 동안에는 시작 버튼이 아예 없다. 같은 회의를 두 번 돌리지 않는다 */}
-      {!running && (
-        <Button
-          size='sm'
-          variant={view.proposal ? 'outline' : 'default'}
-          className='ml-auto'
-          onClick={onGenerate}
-          data-testid='generate'
-        >
-          <Sparkles className='size-4' aria-hidden />
-          {view.proposal || state ? '다시 정리' : 'AI 정리 시작'}
-        </Button>
-      )}
-    </header>
   )
 }
 
@@ -225,10 +187,14 @@ function Sections({
   proposal,
   segments,
   onSeek,
+  onPlay,
+  onOpenTranscript,
 }: {
   proposal: NonNullable<DocumentView['proposal']>
   segments: readonly RevisionSegmentView[]
   onSeek: (ms: number) => void
+  onPlay: (ms: number) => void
+  onOpenTranscript: (ms: number) => void
 }) {
   const numbers = footnoteNumbers(proposal.evidence)
   const notes = citationsOf(
@@ -237,31 +203,101 @@ function Sections({
     segments
   )
   const byId = new Map(notes.map((c) => [c.id, c]))
+  const narrative = proposal.narrative ?? []
 
   /** 본문 한 덩어리. 마커 자리에 각주 번호를 그린다. */
   const body = (text: string) => (
-    <Annotated text={text} numbers={numbers} byId={byId} onSeek={onSeek} />
+    <Annotated
+      text={text}
+      numbers={numbers}
+      byId={byId}
+      segments={segments}
+      onSeek={onSeek}
+      onPlay={onPlay}
+      onOpenTranscript={onOpenTranscript}
+    />
   )
 
   return (
-    <>
-      <Section key='summary' sectionKey='summary'>
-        <p className='text-sm whitespace-pre-wrap'>
-          {body(proposal.summary.text)}
-        </p>
-      </Section>
+    <div className='flex flex-col gap-10'>
+      {/*
+        ⚠️ 본문 폭을 따로 좁히지 않는다. 긴 줄이 읽기 힘든 것은 눈이 다음 줄
+           첫 글자를 못 찾기 때문인데, 한글은 한 글자가 담는 뜻이 커서 같은
+           픽셀 폭에서도 글자 수가 로마자의 절반쯤이다. 이 화면의 본문 폭
+           (`max-w-5xl` 안쪽 ≈ 940px)은 한글 58자 남짓이라 그 범위 안에 있다.
+           오히려 68ch로 좁히면 오른쪽에 빈 칸이 남아 글이 떠 보였다.
+
+        ⛔ **탭이 바꾸는 것은 「회의 내용 ↔ 요약」뿐이다.** 둘은 같은 회의를
+           길게/짧게 말한 것이라 나란히 두면 같은 얘기를 두 번 읽게 된다.
+
+        ⛔ **결정 사항과 Action Item은 탭 밖이다.** 그 둘은 요약의 일부가
+           아니라 별개의 산출물이고, 검수 대상이다. 탭 뒤에 숨기면 어느 탭을
+           보고 있느냐에 따라 할 일이 보였다 안 보였다 한다.
+      */}
+      {/* ⛔ 자식마다 margin을 주지 않는다. 부모의 gap 하나로 충분하다 */}
+      <Tabs
+        defaultValue={narrative.length > 0 ? 'narrative' : 'summary'}
+        className='gap-4'
+      >
+        <TabsList>
+          <TabsTrigger value='narrative' data-testid='tab-narrative'>
+            회의 내용
+          </TabsTrigger>
+          <TabsTrigger value='summary' data-testid='tab-summary'>
+            요약
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value='narrative' data-section='narrative'>
+          {narrative.length === 0 ? (
+            <p className='text-muted-foreground text-sm'>
+              이 결과에는 회의 내용 정리가 없습니다. 다시 정리하면 만들어집니다.
+            </p>
+          ) : (
+            <div className='flex flex-col gap-6'>
+              {narrative.map((n, i) => (
+                <section key={i} className='flex flex-col gap-2' data-topic={i}>
+                  <h3 className='font-medium'>{n.heading}</h3>
+                  <p className='text-base whitespace-pre-wrap'>{body(n.body)}</p>
+                </section>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/*
+          ⛔ 탭 이름이 「요약」인데 안에 또 「회의 요약」이라고 쓰지 않는다.
+             같은 말이 두 줄로 겹친다.
+        */}
+        <TabsContent value='summary' data-section='summary'>
+          <p className='text-base whitespace-pre-wrap'>
+            {body(proposal.summary.text)}
+          </p>
+        </TabsContent>
+      </Tabs>
 
       <Section key='decisions' sectionKey='decisions'>
         {proposal.decisions.length === 0 ? (
           <Empty what='결정된 사항' />
         ) : (
-          <ul className='flex flex-col gap-2'>
+          /*
+            ⛔ 번호를 매긴다. 검수는 "몇 번째 결정이 틀렸다"고 말할 수 있어야
+               하는 일이다. 불릿만 있으면 가리킬 수단이 없다.
+          */
+          <ol className='flex flex-col gap-3'>
             {proposal.decisions.map((d, i) => (
-              <li key={i} className='text-sm' data-decision={i}>
-                {body(d.what)}
+              <li
+                key={i}
+                className='grid grid-cols-[1.75rem_1fr] text-base'
+                data-decision={i}
+              >
+                <span className='text-muted-foreground pt-px font-mono text-sm tabular-nums'>
+                  {i + 1}
+                </span>
+                <span>{body(d.what)}</span>
               </li>
             ))}
-          </ul>
+          </ol>
         )}
       </Section>
 
@@ -269,26 +305,36 @@ function Sections({
         {proposal.tasks.length === 0 ? (
           <Empty what='할 일' />
         ) : (
-          <ul className='flex flex-col gap-3'>
+          <ol className='flex flex-col gap-4'>
             {proposal.tasks.map((t, i) => (
-              <li key={i} className='text-sm' data-task={i}>
-                <p>{body(t.action)}</p>
-                {/*
-                  ⛔ 담당자·기한이 비어 있는 것을 숨기지 않는다. 화자 분리를
-                     접었으므로 "제가 하겠습니다"는 누구인지 알 수 없다.
-                     사람이 지정할 자리라는 것을 보여준다.
-                */}
-                <p className='text-muted-foreground mt-0.5 text-xs'>
-                  담당 {t.owner ?? UNSET_LABEL} · 기한 {t.due ?? UNSET_LABEL}
-                </p>
+              <li
+                key={i}
+                className='grid grid-cols-[1.75rem_1fr] text-base'
+                data-task={i}
+              >
+                <span className='text-muted-foreground pt-px font-mono text-sm tabular-nums'>
+                  {i + 1}
+                </span>
+                <div>
+                  <p>{body(t.action)}</p>
+                  {/*
+                    ⛔ 담당자·기한이 비어 있는 것을 숨기지 않는다. 화자 분리를
+                       접었으므로 "제가 하겠습니다"는 누구인지 알 수 없다.
+                       사람이 지정할 자리라는 것을 보여준다.
+                  */}
+                  <p className='text-muted-foreground mt-1 text-sm'>
+                    담당 {t.owner ?? UNSET_LABEL} · 기한 {t.due ?? UNSET_LABEL}
+                  </p>
+                </div>
               </li>
             ))}
-          </ul>
+          </ol>
         )}
       </Section>
 
-      <Footnotes notes={notes} onSeek={onSeek} />
-    </>
+      {/* ⛔ 각주란은 탭 **밖**이다. 두 탭의 각주가 같은 번호를 가리킨다 */}
+      <Footnotes notes={notes} onPlay={onPlay} />
+    </div>
   )
 }
 
@@ -311,12 +357,18 @@ function Annotated({
   text,
   numbers,
   byId,
+  segments,
   onSeek,
+  onPlay,
+  onOpenTranscript,
 }: {
   text: string
   numbers: Map<string, number>
   byId: Map<string, Citation>
+  segments: readonly RevisionSegmentView[]
   onSeek: (ms: number) => void
+  onPlay: (ms: number) => void
+  onOpenTranscript: (ms: number) => void
 }) {
   return (
     <>
@@ -329,7 +381,10 @@ function Annotated({
             id={part.id}
             n={numbers.get(part.id)}
             cite={byId.get(part.id)}
+            segments={segments}
             onSeek={onSeek}
+            onPlay={onPlay}
+            onOpenTranscript={onOpenTranscript}
           />
         )
       )}
@@ -337,16 +392,32 @@ function Annotated({
   )
 }
 
+/**
+ * 각주 번호와 그 자리에서 열리는 근거.
+ *
+ * ⛔ **누른다고 소리가 나오지 않는다.** 예전에는 각주를 누르면 곧바로 재생이
+ *    시작됐다. 읽는 중에 소리가 터져 나오는 건 방해다 — 각주를 누르는 것은
+ *    "근거가 뭐지"이지 "들려줘"가 아니다. 듣기는 명시적으로 누른다.
+ *
+ * ⛔ **앞뒤 문맥을 여기서 보여준다.** 인용문 한 줄로는 검수할 수 없고, 매번
+ *    1423줄짜리 전사를 여는 것은 읽는 흐름을 끊는다. 흔한 경우는 여기서 끝난다.
+ */
 function FootnoteMark({
   id,
   n,
   cite,
+  segments,
   onSeek,
+  onPlay,
+  onOpenTranscript,
 }: {
   id: string
   n: number | undefined
   cite: Citation | undefined
+  segments: readonly RevisionSegmentView[]
   onSeek: (ms: number) => void
+  onPlay: (ms: number) => void
+  onOpenTranscript: (ms: number) => void
 }) {
   /*
    * ⛔ 닿지 못하는 근거를 누를 수 있게 그리지 않는다 — 눌러도 아무 데도 가지
@@ -360,21 +431,81 @@ function FootnoteMark({
       </sup>
     )
   }
+
+  const ms = cite.startMs!
+  const lines = contextAround(segments, cite.index)
+
   return (
-    <sup>
-      <button
-        type='button'
-        data-cite={id}
-        onClick={() => onSeek(cite.startMs!)}
-        aria-label={`${cite.timestamp}부터 듣기 — ${cite.quote}`}
-        title={`${cite.timestamp} ${cite.quote}`}
-        // ⛔ 오른쪽 여백을 주지 않는다. 마커는 문장 끝 마침표 **앞**에 오므로,
-        //    양쪽에 여백을 주면 `했다 [5] .`처럼 마침표가 떨어져 나온다.
-        className='text-primary hover:bg-primary/10 rounded pl-0.5 font-mono text-xs hover:underline'
-      >
-        [{n}]
-      </button>
-    </sup>
+    <Popover
+      onOpenChange={(open) => {
+        // 열기만 해도 재생 위치는 맞춰 둔다. 소리는 나지 않는다.
+        if (open) onSeek(ms)
+      }}
+    >
+      <PopoverTrigger asChild>
+        <sup>
+          <button
+            type='button'
+            data-cite={id}
+            aria-label={`근거 ${n} — ${cite.timestamp} ${cite.quote}`}
+            // ⛔ 오른쪽 여백을 주지 않는다. 마커는 문장 끝 마침표 **앞**에 오므로,
+            //    양쪽에 여백을 주면 `했다 [5] .`처럼 마침표가 떨어져 나온다.
+            /*
+              ⛔ `text-primary`를 쓰지 않는다. 이 테마의 primary는 파랑이
+                 아니라 **검정**이라(Vercel 시그니처), 각주가 본문과 같은
+                 색으로 보인다. 각주는 본문을 방해하지 않아야 하므로
+                 조용한 색으로 두고, 가리킬 때만 진해진다.
+            */
+            className='text-muted-foreground hover:text-foreground hover:bg-accent data-[state=open]:text-foreground data-[state=open]:bg-accent rounded pl-0.5 font-mono text-xs'
+          >
+            [{n}]
+          </button>
+        </sup>
+      </PopoverTrigger>
+      <PopoverContent align='start' className='w-96 p-0' data-testid='footnote-card'>
+        <div className='flex flex-col gap-2 p-3'>
+          <span className='text-muted-foreground font-mono text-xs'>
+            근거 {n} · {cite.timestamp}
+          </span>
+          <ol className='flex flex-col gap-1 text-sm'>
+            {lines.map((l) => (
+              <li
+                key={l.id}
+                className={
+                  l.isCited ? 'text-foreground' : 'text-muted-foreground text-xs'
+                }
+                data-cited={l.isCited || undefined}
+              >
+                {l.text}
+              </li>
+            ))}
+          </ol>
+        </div>
+        <Separator />
+        <div className='flex gap-1 p-1'>
+          <Button
+            variant='ghost'
+            size='sm'
+            className='flex-1 justify-start'
+            onClick={() => onPlay(ms)}
+            data-testid='play-here'
+          >
+            <Play className='size-3.5' aria-hidden />
+            여기부터 듣기
+          </Button>
+          <Button
+            variant='ghost'
+            size='sm'
+            className='flex-1 justify-start'
+            onClick={() => onOpenTranscript(ms)}
+            data-testid='open-in-transcript'
+          >
+            <ListTree className='size-3.5' aria-hidden />
+            전사에서 보기
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -388,10 +519,11 @@ function FootnoteMark({
  */
 function Footnotes({
   notes,
-  onSeek,
+  onPlay,
 }: {
   notes: Citation[]
-  onSeek: (ms: number) => void
+  /** 각주란에서는 목록을 훑는 중이므로 누르면 바로 듣는 편이 맞다 */
+  onPlay: (ms: number) => void
 }) {
   return (
     <details className='border-border rounded-lg border' data-section='evidence'>
@@ -412,7 +544,7 @@ function Footnotes({
               <button
                 type='button'
                 data-cite={c.id}
-                onClick={() => onSeek(c.startMs!)}
+                onClick={() => onPlay(c.startMs!)}
                 aria-label={`${c.timestamp}부터 듣기 — ${c.quote}`}
                 className='hover:text-primary text-left'
               >
@@ -441,16 +573,23 @@ function Section({
   sectionKey,
   children,
 }: {
-  sectionKey: 'summary' | 'decisions' | 'tasks'
+  sectionKey: 'decisions' | 'tasks'
   children: React.ReactNode
 }) {
   const title = SECTIONS.find((s) => s.key === sectionKey)!.title
   return (
-    <section
-      className='border-border flex flex-col gap-2 rounded-lg border p-4'
-      data-section={sectionKey}
-    >
-      <h3 className='text-sm font-medium'>{title}</h3>
+    /*
+      ⛔ **카드로 감싸지 않는다.** 네 덩어리를 전부 같은 테두리 상자에 넣으면
+         위계가 사라지고 화면이 상자 목록이 된다. 여백과 라벨로 나눈다.
+    */
+    <section className='flex flex-col gap-3' data-section={sectionKey}>
+      {/*
+        제목은 **라벨**이지 읽을 글이 아니다. 본문보다 작고 조용하게 둔다 —
+        예전에는 제목이 본문과 같은 크기라 어느 쪽이 내용인지 알 수 없었다.
+      */}
+      <h3 className='text-muted-foreground text-sm font-medium tracking-wide'>
+        {title}
+      </h3>
       {children}
     </section>
   )
@@ -459,4 +598,27 @@ function Section({
 /** ⛔ 없는 것은 오류가 아니다. 회의에 그런 항목이 없었을 뿐이다. */
 function Empty({ what }: { what: string }) {
   return <p className='text-muted-foreground text-sm'>{what}이 없습니다.</p>
+}
+
+/**
+ * 결과가 나올 자리의 뼈대.
+ *
+ * ⛔ **빈 화면이나 「불러오는 중…」 한 줄로 두지 않는다.** 무엇이 어디에
+ *    나올지 미리 보이면 기다림이 짧게 느껴지고, 화면이 멈춘 것과 구분된다.
+ */
+function ResultSkeleton() {
+  return (
+    <div className='flex flex-col gap-8' data-testid='result-skeleton'>
+      {(['summary', 'decisions', 'tasks'] as const).map((key) => (
+        <section key={key} className='flex flex-col gap-3'>
+          <Skeleton className='h-4 w-20' />
+          <div className='flex flex-col gap-2'>
+            <Skeleton className='h-4 w-full' />
+            <Skeleton className='h-4 w-11/12' />
+            {key === 'summary' && <Skeleton className='h-4 w-4/6' />}
+          </div>
+        </section>
+      ))}
+    </div>
+  )
 }

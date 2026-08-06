@@ -12,6 +12,8 @@
  *    프롬프트 보강은 위반 빈도를 줄일 뿐 0으로 만들지 못한다.
  */
 
+import { citedIdsIn } from './citation.ts'
+
 export type TranscriptSegment = {
   id: string
   /** `HH:MM:SS` */
@@ -46,7 +48,24 @@ export type ProposedTask = {
 /** 비어 있음을 사람에게 보여주는 말. 프롬프트와 화면이 같은 단어를 쓴다 */
 export const UNSET_LABEL = '미입력'
 
+/**
+ * 회의 전문 — 주제별로 나눈 **긴 정리글**.
+ *
+ * ⛔ 요약과 다른 것이다. 요약은 "회의가 무엇이었나"를 몇 문장으로 답하고,
+ *    전문은 **회의에서 오간 내용을 따라 읽을 수 있게** 편 것이다. 둘 중
+ *    하나만 두면, 짧은 쪽은 근거가 부족하고 긴 쪽은 훑을 수 없다.
+ *
+ * ⛔ 전사문을 대체하지 않는다. 전사는 기계가 들은 말 그대로이고 불변이다.
+ */
+export type NarrativeSection = {
+  heading: string
+  /** 본문. 근거 마커(`[seg_33]`)가 문장 안에 들어 있다 */
+  body: string
+}
+
 export type DocumentProposal = {
+  /** 회의 전문. ⛔ 선택이다 — 이 필드가 생기기 전의 실행에는 없다 */
+  narrative?: NarrativeSection[]
   summary: { text: string; evidence: string[] }
   decisions: Array<{ what: string; evidence: string[] }>
   tasks: ProposedTask[]
@@ -111,6 +130,13 @@ export function verifyEvidence(
   const note = (ids: readonly string[], where: string) => {
     for (const id of ids) if (!cited.has(id)) cited.set(id, where)
   }
+  /*
+   * ⛔ **회의 전문의 인용도 검사한다.** 빠뜨리면 화면에서 가장 긴 글이
+   *    검증 밖에 남고, 거기에 지어낸 세그먼트가 섞여도 통과한다.
+   */
+  proposal.narrative?.forEach((n, i) =>
+    note(citedIdsIn(n.body), `narrative[${i}]`)
+  )
   note(proposal.summary.evidence, 'summary')
   proposal.decisions.forEach((d, i) => note(d.evidence, `decisions[${i}]`))
   proposal.tasks.forEach((t, i) => note(t.evidence, `tasks[${i}]`))

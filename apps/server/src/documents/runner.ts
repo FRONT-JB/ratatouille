@@ -226,6 +226,10 @@ function normalize(parsed: unknown): DocumentProposal {
   }
 
   return {
+    narrative: list(p.narrative).map((n) => {
+      const r = n as Record<string, unknown>
+      return { heading: String(r.heading ?? ''), body: String(r.body ?? '') }
+    }),
     summary: { text: summary.text, evidence: cites(summary.text, summary.evidence) },
     decisions: list(p.decisions).map((d) => {
       const what = String((d as Record<string, unknown>).what ?? '')
@@ -285,6 +289,12 @@ export function fillEvidence(
       cited.push(id)
     }
   }
+  /*
+   * ⛔ **읽는 순서대로 모은다.** 이 순서가 곧 각주 번호다. 회의 전문이 먼저
+   *    읽히므로 앞 번호를 가져야 한다 — 요약부터 세면 전문의 각주가 [40]부터
+   *    시작하는 이상한 글이 된다.
+   */
+  for (const n of proposal.narrative ?? []) note(citedIdsIn(n.body))
   note(proposal.summary.evidence)
   for (const d of proposal.decisions) note(d.evidence)
   for (const t of proposal.tasks) note(t.evidence)

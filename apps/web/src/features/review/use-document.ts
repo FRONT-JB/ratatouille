@@ -93,15 +93,31 @@ export function useDocument(sourceId: string, deps: DocumentDeps = {}) {
   }, [running, pollMs, load])
 
   const generate = useCallback(async () => {
+    /*
+     * ⛔ **먼저 「도는 중」으로 바꾼 뒤에 보낸다.**
+     *    서버의 POST는 모델이 끝날 때까지(30초 넘게) 응답하지 않는다. 응답을
+     *    기다렸다가 화면을 바꾸면, 누른 뒤 30초 동안 아무 일도 일어나지 않은
+     *    것처럼 보인다 — 실제로 "새로고침해야 정리 중 화면이 나온다"는 말을
+     *    들었다. 낙관적으로 바꿔두면 폴링이 이어받아 진행을 보여준다.
+     */
+    setView((prev) => ({
+      ...(prev ?? EMPTY),
+      documentRunState: 'queued',
+      error: null,
+      violations: [],
+      elapsedMs: null,
+    }))
+    setError(null)
     try {
       setView(await request({ method: 'POST' }))
-      setError(null)
       return true
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      // 낙관적으로 켜둔 「도는 중」을 되돌린다. 안 그러면 영원히 도는 것처럼 보인다.
+      await load()
       return false
     }
-  }, [request])
+  }, [request, load])
 
   return { view, error, generate, reload: load }
 }

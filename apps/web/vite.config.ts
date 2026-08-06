@@ -53,6 +53,9 @@ export default defineConfig({
   test: {
     silent: 'passed-only',
     unstubEnvs: true,
+    // ⛔ 실제 스타일을 불러온다. 없으면 테스트가 "DOM에 있다"까지만 보고
+    //    "실제로 보이는가"를 못 본다 — 각주 버튼이 높이 0이었는데 통과했다.
+    setupFiles: ['./src/test-utils/setup.ts'],
     browser: {
       enabled: true,
       provider: playwright({

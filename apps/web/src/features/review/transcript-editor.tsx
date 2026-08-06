@@ -14,6 +14,9 @@ import { type RevisionSegmentView, activeSegmentId } from './revision'
  * ⚠️ 세그먼트를 합치거나 나눌 수 없다. evidence가 세그먼트 id로 원문을
  *    가리키므로 id가 바뀌면 인용이 깨진다. 잘못 인식된 구간은 비우면 된다.
  */
+/** 이 줄 수 안쪽 이동은 «따라가는 것», 넘어가면 «건너뛰는 것»이다 */
+const NEAR_LINES = 5
+
 export function TranscriptEditor({
   segments,
   currentMs,
@@ -31,11 +34,29 @@ export function TranscriptEditor({
 }) {
   const activeId = activeSegmentId(segments, currentMs)
   const activeRef = useRef<HTMLLIElement | null>(null)
+  const lastIndex = useRef<number | null>(null)
 
-  // 재생을 따라 화면이 움직인다. 안 그러면 30분 회의에서 매번 스크롤해야 한다.
+  /*
+   * 재생을 따라 화면이 움직인다. 안 그러면 30분 회의에서 매번 스크롤해야 한다.
+   *
+   * ⛔ **멀리 건너뛸 때는 부드럽게 훑지 않는다.** 1423줄짜리 전사에서
+   *    `behavior: 'smooth'`로 700번째 줄까지 가면 화면이 목록 전체를 훑고
+   *    내려간다 — 어지럽고 오래 걸린다. 근거를 눌러 점프한 경우가 그렇다.
+   *    가까운 이동(재생이 다음 문장으로 넘어가는 것)만 부드럽게 둔다.
+   */
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-  }, [activeId])
+    const el = activeRef.current
+    if (!el) return
+    const index = segments.findIndex((s) => s.id === activeId)
+    const far =
+      lastIndex.current === null || Math.abs(index - lastIndex.current) > NEAR_LINES
+    lastIndex.current = index
+    el.scrollIntoView(
+      far
+        ? { block: 'center', behavior: 'instant' }
+        : { block: 'nearest', behavior: 'smooth' }
+    )
+  }, [activeId, segments])
 
   if (segments.length === 0) {
     return (

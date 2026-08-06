@@ -26,7 +26,7 @@
     @apply min-h-svh w-full bg-background font-sans text-foreground has-[div[data-variant='inset']]:bg-sidebar;
     line-height: 1.618;
 
-    /* Paperlogy는 한글 본문용이라 약간의 자간 조정이 읽기에 낫다 */
+    /* 한글 본문용 서체라 약간의 자간 조정이 읽기에 낫다 */
     letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

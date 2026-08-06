@@ -271,7 +271,7 @@ function SidebarTrigger({
       {...props}
     >
       <PanelLeftIcon />
-      <span className='sr-only'>Toggle Sidebar</span>
+      <span className='sr-only'>사이드바 열고 닫기</span>
     </Button>
   )
 }
