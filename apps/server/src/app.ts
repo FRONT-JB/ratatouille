@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { type PublishFn, sourcesRoutes } from './routes/sources.ts'
 import { transcriptionRoutes } from './routes/transcriptions.ts'
+import type { RunArtifactStore } from './runs/store.ts'
 import type { TranscriptionQueue } from './transcription/queue.ts'
 import { SourceRepository } from './sources/repository.ts'
 
@@ -18,6 +19,8 @@ export type AppDeps = {
   publish?: PublishFn
   /** 없으면 전사 API를 열지 않는다 (수집만 하는 테스트용 앱) */
   transcription?: TranscriptionQueue
+  /** 전사 원문 조회에 필요하다 */
+  runs?: RunArtifactStore
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -26,7 +29,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.route('/api/sources', sourcesRoutes(deps.sources, deps.publish))
   if (deps.transcription) {
-    app.route('/api', transcriptionRoutes(deps.sources, deps.transcription))
+    app.route('/api', transcriptionRoutes(deps.sources, deps.transcription, deps.runs))
   }
 
   return app

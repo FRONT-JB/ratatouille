@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertTriangle, MonitorSpeaker, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { resumeAudio } from './analyser-pool'
 import { RecordingControls } from './components/recording-controls'
 import {
   LevelMeter,
@@ -31,10 +32,31 @@ import { type RecordingDeps, useRecording } from './use-recording'
  *
  * ⛔ **자동으로 시작하지 않는다.** 마운트만으로 마이크를 켜지 않는다.
  */
-export function RecordingPage({ deps }: { deps?: RecordingDeps } = {}) {
+export function RecordingPage({
+  deps,
+  onFinished,
+}: {
+  deps?: RecordingDeps
+  /**
+   * 종료가 끝났을 때 부른다. route가 페이지 B로 넘긴다.
+   *
+   * ⚠️ 이 컴포넌트가 직접 `useNavigate`를 부르지 않는 이유: router 없이도
+   *    렌더할 수 있어야 테스트가 화면 계약을 검증할 수 있다.
+   */
+  onFinished?: (sourceId: string) => void
+} = {}) {
   const r = useRecording(deps)
   const [tabWarning, setTabWarning] = useState<string | null>(null)
-  const recording = r.screen.screenState !== 'ready' && r.screen.screenState !== 'permission_prompt' && r.screen.screenState !== 'permission_denied'
+  const recording =
+    r.screen.screenState !== 'ready' &&
+    r.screen.screenState !== 'permission_prompt' &&
+    r.screen.screenState !== 'permission_denied'
+
+  // 종료가 끝나면 페이지 B로 넘긴다 (화면 계약: "즉시 페이지 B 로딩 상태로 이동")
+  const finished = r.finishedSourceId
+  useEffect(() => {
+    if (finished) onFinished?.(finished)
+  }, [finished, onFinished])
 
   return (
     <div className='mx-auto flex w-full max-w-3xl flex-col gap-8 p-6 sm:p-10'>
@@ -52,7 +74,16 @@ export function RecordingPage({ deps }: { deps?: RecordingDeps } = {}) {
           <div className='flex flex-col gap-3'>
             <h2 className='text-sm font-medium'>마이크</h2>
             {r.screen.screenState === 'permission_prompt' && (
-              <Button onClick={() => void r.requestMic()} variant='outline' className='w-fit'>
+              <Button
+                onClick={() => {
+                  // ⛔ AudioContext는 **사용자 제스처 안에서** 깨워야 한다.
+                  //    밖에서 만들면 suspended로 남고 파형이 영영 평평하다.
+                  void resumeAudio()
+                  void r.requestMic()
+                }}
+                variant='outline'
+                className='w-fit'
+              >
                 마이크 권한 요청
               </Button>
             )}
@@ -89,6 +120,7 @@ export function RecordingPage({ deps }: { deps?: RecordingDeps } = {}) {
                 variant='outline'
                 className='w-fit'
                 onClick={async () => {
+                  void resumeAudio()
                   const res = await r.requestTabAudio()
                   setTabWarning(
                     res.ok
@@ -163,6 +195,31 @@ export function RecordingPage({ deps }: { deps?: RecordingDeps } = {}) {
             )}
           </div>
 
+          {finished && (
+            /*
+             * ⛔ onFinished가 없거나 이동이 실패해도 **갇히지 않는다.**
+             *    예전에는 여기에 아무것도 없어서 화면이 "저장 중"에 머물렀다.
+             */
+            <div
+              className='border-state-success/40 bg-state-success/5 flex flex-col gap-2 rounded-md border p-4'
+              data-testid='recording-finished'
+            >
+              <p className='text-sm font-medium'>녹음이 저장되었습니다.</p>
+              {/*
+                ⛔ 여기서 `<Link>`를 쓰지 않는다. 이 링크는 **자동 이동이 실패했을
+                   때의 탈출구**다. router에 의존하면 router가 문제일 때 탈출구도
+                   같이 죽는다. (실제로 router 없이 렌더하면 `useLinkProps`가
+                   던져서 이 블록 전체가 안 그려졌다.)
+              */}
+              <a
+                href={`/meetings/${finished}`}
+                className='text-sm underline underline-offset-4'
+              >
+                회의 열기
+              </a>
+            </div>
+          )}
+
           {r.screen.screenState === 'stop_failed' && (
             <p className='text-state-danger text-sm' role='alert'>
               종료하지 못했습니다. 녹음은 이 브라우저에 남아 있으니 네트워크를 확인한 뒤
@@ -174,7 +231,10 @@ export function RecordingPage({ deps }: { deps?: RecordingDeps } = {}) {
 
       <RecordingControls
         controls={r.screen.controls}
-        onStart={() => void r.start()}
+        onStart={() => {
+          void resumeAudio()
+          void r.start()
+        }}
         onPause={r.pause}
         onResume={r.resume}
         onStop={() => void r.stop()}

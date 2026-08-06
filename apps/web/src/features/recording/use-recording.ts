@@ -52,6 +52,8 @@ export function useRecording(deps: RecordingDeps = {}) {
   const [storagePersisted, setStoragePersisted] = useState(false)
   const [stopError, setStopError] = useState<string | null>(null)
   const [sourceId, setSourceId] = useState<string | null>(null)
+  /** 종료까지 끝난 source. 이 값이 서면 화면은 더 이상 "저장 중"이 아니다. */
+  const [finishedSourceId, setFinishedSourceId] = useState<string | null>(null)
 
   const sessionRef = useRef<CaptureSession | null>(null)
   const storeRef = useRef<ChunkStore | null>(deps.store ?? null)
@@ -208,6 +210,13 @@ export function useRecording(deps: RecordingDeps = {}) {
     setPhase('recording')
   }, [now])
 
+  /**
+   * 녹음을 끝낸다.
+   *
+   * ⛔ **성공하면 `finishedSourceId`를 세운다.** 예전에는 `phase`를 `stopping`으로
+   *    바꾸고 끝이라, 서버가 이미 `ready`인데도 화면이 "저장 중"에 영원히 갇혔다.
+   *    화면 계약은 "녹음 종료 후 **즉시 페이지 B 로딩 상태로 이동**"이다.
+   */
   const stop = useCallback(async () => {
     const session = sessionRef.current
     const uploader = uploaderRef.current
@@ -219,6 +228,7 @@ export function useRecording(deps: RecordingDeps = {}) {
       await session.stop()
       await uploader?.finalize(sourceId, session.chunkCounts())
       sessionRef.current = null
+      setFinishedSourceId(sourceId)
       return { ok: true as const, sourceId }
     } catch (e) {
       // 실패해도 조각은 로컬에 남아 있다. 그 사실을 문구에 담는다.
@@ -259,6 +269,7 @@ export function useRecording(deps: RecordingDeps = {}) {
     remoteStream,
     remoteLabel,
     sourceId,
+    finishedSourceId,
     requestMic,
     requestTabAudio,
     start,

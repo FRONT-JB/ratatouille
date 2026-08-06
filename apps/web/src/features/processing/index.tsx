@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ProcessingStatus } from './processing-status'
+import { TranscriptPreview } from './transcript-preview'
 import {
   type FetchLike,
   type NextAction,
@@ -107,7 +108,7 @@ export function ProcessingPage({
   return (
     <Shell>
       <ProcessingStatus source={source} onAction={(a) => void onAction(a)} />
-      <TranscriptReviewSlot source={source} />
+      <TranscriptReviewSlot source={source} fetchFn={fetchFn} />
     </Shell>
   )
 }
@@ -124,24 +125,19 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * 전사 교정이 들어올 자리.
+ * 전사가 끝나면 원문을 보여준다.
  *
- * ⚠️ Phase 5에서 채운다. 지금은 **비어 있다는 사실을 명시**한다 —
- *    빈 화면을 두면 구현된 것으로 오해한다.
+ * ⚠️ 읽기 전용이다. 교정 UI(Phase 5)는 아직 없다. 원문을 아예 안 보여주면
+ *    사용자가 "제대로 녹음됐나"를 화면에서 확인할 방법이 없다 — 실제로
+ *    파형이 안 움직였을 때 녹음 성공 여부를 판단할 수 없었다.
  */
-function TranscriptReviewSlot({ source }: { source: SessionSource }) {
+function TranscriptReviewSlot({
+  source,
+  fetchFn,
+}: {
+  source: SessionSource
+  fetchFn?: FetchLike
+}) {
   if (source.job?.jobState !== 'completed') return null
-
-  return (
-    <section
-      className='border-border bg-muted/40 rounded-lg border p-4'
-      data-testid='transcript-review-slot'
-    >
-      <h2 className='mb-1 text-sm font-medium'>전사 교정</h2>
-      <p className='text-muted-foreground text-sm'>
-        세그먼트 {source.job.segmentCount}개가 준비되었습니다. 교정 화면은 Phase 5에서
-        구현합니다.
-      </p>
-    </section>
-  )
+  return <TranscriptPreview jobId={source.job.id} fetchFn={fetchFn} />
 }

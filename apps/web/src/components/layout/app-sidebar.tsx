@@ -1,3 +1,4 @@
+import { Mic } from 'lucide-react'
 import { useLayout } from '@/context/layout-provider'
 import {
   Sidebar,
@@ -7,9 +8,11 @@ import {
   SidebarRail,
 } from '@/components/ui/sidebar'
 import { ThemeSwitch } from '@/components/theme-switch'
+import { useMeetings } from '@/features/processing/use-meetings'
 import { AppTitle } from './app-title'
 import { sidebarData } from './data/sidebar-data'
 import { NavGroup } from './nav-group'
+import type { NavGroup as NavGroupType } from './types'
 
 /**
  * Ratatouille 공통 앱 셸의 유일한 Sidebar.
@@ -19,17 +22,37 @@ import { NavGroup } from './nav-group'
  *   - Sidebar 옆에 별도 회의 목록 열을 만들지 않는다
  *   - Today · 캘린더 · 로드맵 · 통합 작업 관리를 넣지 않는다 (Phase 2)
  *
+ * ⛔ 회의 목록은 **아직 교정하지 않은 것까지 전부** 보여준다. 진입 시점에
+ *    무엇이 있고 무엇이 덜 끝났는지 알 수 없으면 URL을 외우고 있어야 한다.
+ *
  * 1인용 앱이므로 팀 전환기와 사용자 프로필을 두지 않는다.
  */
 export function AppSidebar() {
   const { collapsible, variant } = useLayout()
+  const { items } = useMeetings()
+
+  const groups: NavGroupType[] = sidebarData.navGroups.map((g) =>
+    g.title === '회의'
+      ? {
+          ...g,
+          // 한 단계로 직접 넣는다 — 중첩 tree를 만들지 않는다
+          items: items.map((m) => ({
+            title: m.label,
+            url: `/meetings/${m.sourceId}`,
+            badge: m.badge,
+            icon: Mic,
+          })),
+        }
+      : g
+  )
+
   return (
     <Sidebar collapsible={collapsible} variant={variant}>
       <SidebarHeader>
         <AppTitle />
       </SidebarHeader>
       <SidebarContent>
-        {sidebarData.navGroups.map((props) => (
+        {groups.map((props) => (
           <NavGroup key={props.title} {...props} />
         ))}
       </SidebarContent>

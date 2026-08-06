@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { useAudioLevel, useAudioLevels } from '../use-audio-level'
+import { useAudioLevels } from '../use-audio-level'
 
 type VisualizerProps = {
   stream: MediaStream | null
@@ -7,6 +7,8 @@ type VisualizerProps = {
   label: string
   className?: string
 }
+
+const STALLED_TEXT = '입력 레벨을 읽을 수 없습니다'
 
 /**
  * 녹음 파형.
@@ -16,6 +18,10 @@ type VisualizerProps = {
  *    있다는 증거여야 한다.
  *
  * 막대 하나하나가 과거 레벨의 이동 기록이다. 오른쪽 끝이 현재.
+ *
+ * ⛔ **평평한 파형이 "무음"인지 "고장"인지 화면에서 구분된다.** 실제로 탭
+ *    오디오가 max -0.0 dB로 멀쩡히 녹음되는데 파형만 평평했던 적이 있고,
+ *    그때 화면만 보고는 소리가 안 들어오는 건지 못 읽는 건지 알 수 없었다.
  */
 export function RecordingVisualizer({
   stream,
@@ -23,7 +29,7 @@ export function RecordingVisualizer({
   label,
   className,
 }: VisualizerProps) {
-  const { level, history } = useAudioLevels(stream, active)
+  const { level, history, reading, stalled } = useAudioLevels(stream, active)
 
   return (
     <div
@@ -32,8 +38,13 @@ export function RecordingVisualizer({
       data-active={active}
       // 테스트와 접근성 양쪽에서 현재 레벨을 확인할 수 있게 노출한다
       data-level={level.toFixed(3)}
+      data-reading={reading}
       role='img'
-      aria-label={`${label} 입력 레벨 ${Math.round(level * 100)}%`}
+      aria-label={
+        stalled
+          ? `${label} ${STALLED_TEXT}`
+          : `${label} 입력 레벨 ${Math.round(level * 100)}%`
+      }
     >
       <div className='flex h-24 items-end gap-[3px]' aria-hidden>
         {history.map((h, i) => (
@@ -41,13 +52,23 @@ export function RecordingVisualizer({
             key={i}
             className={cn(
               'flex-1 rounded-sm transition-[height] duration-75',
-              active ? 'bg-primary' : 'bg-muted-foreground/25'
+              stalled
+                ? 'bg-state-warning/30'
+                : active
+                  ? 'bg-primary'
+                  : 'bg-muted-foreground/25'
             )}
             style={{ height: `${Math.max(2, h * 100)}%` }}
           />
         ))}
       </div>
-      <p className='text-muted-foreground text-xs'>{label}</p>
+      {stalled ? (
+        <p className='text-state-warning text-xs' role='alert'>
+          {label}: {STALLED_TEXT}. 녹음은 계속되고 있습니다.
+        </p>
+      ) : (
+        <p className='text-muted-foreground text-xs'>{label}</p>
+      )}
     </div>
   )
 }
@@ -71,10 +92,14 @@ export function LevelMeter({
   /** 바로 위에 같은 제목이 있으면 끈다 — 같은 말을 두 번 읽히지 않는다 */
   showLabel?: boolean
 }) {
-  const level = useAudioLevel(stream, stream !== null)
+  const { level, reading, stalled } = useAudioLevels(stream, stream !== null)
 
   return (
-    <div className='flex flex-col gap-1.5' data-testid={`level-meter-${label}`}>
+    <div
+      className='flex flex-col gap-1.5'
+      data-testid={`level-meter-${label}`}
+      data-reading={reading}
+    >
       {(showLabel || hint) && (
         <div className='flex items-baseline justify-between'>
           {showLabel ? (
@@ -98,6 +123,15 @@ export function LevelMeter({
           style={{ width: `${level * 100}%` }}
         />
       </div>
+      {/*
+        ⛔ 시작 전에 이 사실을 못 보면, 레벨이 0인 채로 녹음을 시작하고
+           끝난 뒤에야 무음인지 확인하게 된다.
+      */}
+      {stalled && (
+        <p className='text-state-warning text-xs' role='alert'>
+          {STALLED_TEXT}. 브라우저 탭을 한 번 클릭한 뒤 다시 확인해 주세요.
+        </p>
+      )}
     </div>
   )
 }

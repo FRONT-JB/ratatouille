@@ -90,6 +90,7 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     sources,
     publish: (src) => publishSource(src, { vault, runs }),
     transcription,
+    runs,
   }
 
   return {

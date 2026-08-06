@@ -11,7 +11,9 @@
 
 import { type StateRef, describeState, nextActionFor } from '@ratatouille/contracts'
 import { Hono } from 'hono'
+import type { RunArtifactStore } from '../runs/store.ts'
 import { SourceNotFoundError, type SourceRepository } from '../sources/repository.ts'
+import { formatTimestamp } from '../transcription/runner.ts'
 import {
   SourceNotReadyError,
   type TranscriptionJob,
@@ -40,7 +42,8 @@ function jobDto(j: TranscriptionJob) {
 
 export function transcriptionRoutes(
   sources: SourceRepository,
-  queue: TranscriptionQueue
+  queue: TranscriptionQueue,
+  runs?: RunArtifactStore
 ): Hono {
   const app = new Hono()
 
@@ -64,6 +67,54 @@ export function transcriptionRoutes(
     const job = queue.get(c.req.param('jobId'))
     if (!job) return c.json({ error: '전사 job을 찾을 수 없다' }, 404)
     return c.json(jobDto(job))
+  })
+
+  /**
+   * 전사 원문.
+   *
+   * ⚠️ **읽기 전용이다.** 교정은 Phase 5다. 여기서 편집을 받으면 확정 절차
+   *    (transcript_revision 상태 머신)를 우회하게 된다.
+   *
+   * timestamp 문자열은 `formatTimestamp` 한 곳에서만 만든다 — evidence 검증이
+   * 문자열 완전 일치로 비교하므로 화면과 검증이 다른 포맷을 쓰면 안 된다.
+   */
+  app.get('/transcriptions/:jobId/transcript', async (c) => {
+    const jobId = c.req.param('jobId')
+    const job = queue.get(jobId)
+    if (!job) return c.json({ error: '전사 job을 찾을 수 없다' }, 404)
+    if (!runs) return c.json({ error: '이력 저장소가 없다' }, 503)
+
+    const raw = (await runs.readRawTranscript(jobId)) as {
+      language?: string | null
+      capture_mode?: string
+      audio_ms?: number | null
+      segments?: Array<{
+        id: string
+        startMs: number
+        endMs: number
+        text: string
+        speaker: string | null
+      }>
+    } | null
+    if (!raw?.segments) {
+      return c.json({ error: '아직 전사 결과가 없다' }, 404)
+    }
+
+    return c.json({
+      jobId,
+      sourceId: job.sourceId,
+      language: raw.language ?? null,
+      captureMode: raw.capture_mode ?? null,
+      audioMs: raw.audio_ms ?? null,
+      segments: raw.segments.map((s) => ({
+        id: s.id,
+        startMs: s.startMs,
+        endMs: s.endMs,
+        timestamp: formatTimestamp(s.startMs),
+        text: s.text,
+        speaker: s.speaker,
+      })),
+    })
   })
 
   /**
