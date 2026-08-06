@@ -1,10 +1,11 @@
+import { EventEmitter } from 'node:events'
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { RunArtifactStore } from '../src/runs/store.ts'
 import { SourceRepository } from '../src/sources/repository.ts'
-import { type RunProcess, Transcriber } from '../src/transcription/job.ts'
+import { TranscriptionRunner } from '../src/transcription/runner.ts'
 import { SourceNotReadyError, TranscriptionQueue } from '../src/transcription/queue.ts'
 
 let root: string
@@ -17,19 +18,51 @@ const WHISPER_OUT = {
   transcription: [{ offsets: { from: 0, to: 4000 }, text: ' 안녕하세요.' }],
 }
 
-const fakeRun =
-  (fail = false): RunProcess =>
-  async (cmd, args) => {
-    if (cmd.includes('ffprobe')) return { code: 0, stdout: '20.0\n', stderr: '' }
-    if (cmd.includes('ffmpeg')) {
-      await writeFile(args[args.length - 1]!, 'wav')
-      return { code: 0, stdout: '', stderr: '' }
-    }
-    whisperCalls++
-    if (fail) return { code: 1, stdout: '', stderr: 'boom' }
-    await writeFile(`${args[args.indexOf('-of') + 1]}.json`, JSON.stringify(WHISPER_OUT))
-    return { code: 0, stdout: '', stderr: '' }
-  }
+/**
+ * whisper와 ffmpeg 대신 쓸 가짜 spawn.
+ *
+ * `TranscriptionRunner`는 `spawnFn`을 주입받으므로 실제 실행 없이 큐의
+ * 수명주기만 검증할 수 있다. 실제 실행 검증은 transcription-runner.test.ts가 한다.
+ */
+function fakeSpawn(fail = false) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((cmd: string, args: string[]) => {
+    const emitter = new EventEmitter() as any
+    emitter.stdout = new EventEmitter()
+    emitter.stderr = new EventEmitter()
+    emitter.kill = () => undefined
+
+    // ⛔ 반드시 비동기로 낸다. 동기로 emit하면 runner가 리스너를 붙이기 전에
+    //    close가 지나가 프로세스가 영영 안 끝난 것처럼 보인다.
+    void (async () => {
+      await Promise.resolve()
+      if (cmd.includes('ffprobe')) {
+        emitter.stdout.emit('data', '20.0')
+        emitter.emit('close', 0)
+        return
+      }
+      if (cmd.includes('ffmpeg')) {
+        await writeFile(args[args.length - 1]!, 'wav')
+        emitter.emit('close', 0)
+        return
+      }
+      whisperCalls++
+      if (fail) {
+        emitter.stderr.emit('data', 'boom')
+        emitter.emit('close', 1)
+        return
+      }
+      await writeFile(
+        `${args[args.indexOf('-of') + 1]}.json`,
+        JSON.stringify(WHISPER_OUT)
+      )
+      emitter.emit('close', 0)
+    })()
+
+    return emitter
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any
+}
 
 const manifest = (over: Record<string, unknown> = {}) =>
   ({
@@ -59,13 +92,13 @@ async function chunkFiles(): Promise<{ mic: string[] }> {
 
 function makeQueue(fail = false) {
   return new TranscriptionQueue({
-    transcriber: new Transcriber({
-      runs: new RunArtifactStore(path.join(root, 'runs')),
-      workRoot: path.join(root, 'work'),
+    runner: new TranscriptionRunner({
       modelPath: '/m/model.bin',
-      run: fakeRun(fail),
+      spawnFn: fakeSpawn(fail),
     }),
     sources,
+    runs: new RunArtifactStore(path.join(root, 'runs')),
+    workRoot: path.join(root, 'work'),
     stateRoot: path.join(root, 'jobs'),
     chunkFilesOf: chunkFiles,
   })
@@ -174,7 +207,7 @@ describe('실패', () => {
     const q = makeQueue(true)
     const job = await q.enqueue('src_01')
     expect(job.state).toBe('failed_retryable')
-    expect(job.error).toMatch(/whisper/)
+    expect(job.error).toMatch(/전사 실패/)
   })
 })
 

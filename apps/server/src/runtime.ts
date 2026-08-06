@@ -16,6 +16,8 @@ import { VaultIndex } from './index-db/indexer.ts'
 import { RunArtifactStore } from './runs/store.ts'
 import { publishSource } from './sources/publish.ts'
 import { SourceRepository } from './sources/repository.ts'
+import { TranscriptionQueue } from './transcription/queue.ts'
+import { TranscriptionRunner } from './transcription/runner.ts'
 import { VaultStore } from './vault/store.ts'
 import { VaultWatcher } from './vault/watcher.ts'
 
@@ -25,6 +27,7 @@ export type Runtime = {
   watcher: VaultWatcher
   sources: SourceRepository
   runs: RunArtifactStore
+  transcription: TranscriptionQueue
   app: ReturnType<typeof createApp>
   shutdown: () => Promise<void>
 }
@@ -34,6 +37,8 @@ export type BootOptions = {
   dataRoot: string
   /** 0이면 주기 scan을 끈다 */
   scanIntervalMs?: number
+  /** whisper 모델 경로. 없으면 전사를 시도할 때 실패한다 */
+  modelPath?: string
 }
 
 export async function boot(opts: BootOptions): Promise<Runtime> {
@@ -65,9 +70,26 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
   })
   watcher.start()
 
+  const transcription = new TranscriptionQueue({
+    runner: new TranscriptionRunner({
+      modelPath:
+        opts.modelPath ??
+        process.env.RATATOUILLE_WHISPER_MODEL ??
+        path.join(dataRoot, 'models/ggml-large-v3-turbo.bin'),
+    }),
+    sources,
+    runs,
+    workRoot: path.join(dataRoot, 'work'),
+    stateRoot: path.join(dataRoot, 'jobs'),
+    chunkFilesOf: async (id) => sources.chunkFiles(id),
+  })
+  const recoveredJobs = await transcription.load()
+  if (recoveredJobs > 0) console.log(`[boot] 전사 job ${recoveredJobs}건 복구`)
+
   const deps: AppDeps = {
     sources,
     publish: (src) => publishSource(src, { vault, runs }),
+    transcription,
   }
 
   return {
@@ -76,6 +98,7 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     watcher,
     sources,
     runs,
+    transcription,
     app: createApp(deps),
     shutdown: async () => {
       // watcher가 멈춘 뒤에 닫는다. 순서를 바꾸면 진행 중이던 scan이

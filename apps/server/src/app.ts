@@ -1,5 +1,7 @@
 import { Hono } from 'hono'
 import { type PublishFn, sourcesRoutes } from './routes/sources.ts'
+import { transcriptionRoutes } from './routes/transcriptions.ts'
+import type { TranscriptionQueue } from './transcription/queue.ts'
 import { SourceRepository } from './sources/repository.ts'
 
 /**
@@ -14,6 +16,8 @@ export type AppDeps = {
   sources: SourceRepository
   /** ready가 된 source를 vault에 쓴다. 없으면 수집만 하고 발행하지 않는다. */
   publish?: PublishFn
+  /** 없으면 전사 API를 열지 않는다 (수집만 하는 테스트용 앱) */
+  transcription?: TranscriptionQueue
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -21,6 +25,9 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/health', (c) => c.json({ ok: true }))
   app.route('/api/sources', sourcesRoutes(deps.sources, deps.publish))
+  if (deps.transcription) {
+    app.route('/api', transcriptionRoutes(deps.sources, deps.transcription))
+  }
 
   return app
 }

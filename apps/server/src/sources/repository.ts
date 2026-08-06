@@ -303,6 +303,23 @@ export class SourceRepository {
     return [...this.sources.values()]
   }
 
+  /**
+   * 전사에 넘길 조각 파일 경로 — track별, **순번 오름차순**.
+   *
+   * ⛔ 파일명 정렬에 기대지 않는다. 순번은 0-padding되어 있지만, 정렬 책임을
+   *    문자열에 넘기면 padding이 바뀌는 순간 `10`이 `9` 앞에 온다.
+   *    기록된 순번으로 정렬한다.
+   */
+  chunkFiles(sourceId: string): Partial<Record<TrackKind, string[]>> {
+    const src = this.get(sourceId)
+    const out: Partial<Record<TrackKind, string[]>> = {}
+    const { unique } = dedupeChunks(src.chunks)
+    for (const c of [...unique].sort((a, b) => a.seq - b.seq)) {
+      ;(out[c.track] ??= []).push(this.chunkPath(sourceId, c.track, c.seq))
+    }
+    return out
+  }
+
   /** 불완전해서 Inbox에 남은 source들 */
   inbox(): SourceRecord[] {
     return this.list().filter((s) => s.state !== 'ready')

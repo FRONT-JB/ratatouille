@@ -11,9 +11,35 @@
 
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
-import type { CaptureMode } from '@ratatouille/contracts'
+import {
+  type CaptureMode,
+  type TranscriptionJobState,
+  transition,
+} from '@ratatouille/contracts'
+import type { RunArtifactStore } from '../runs/store.ts'
 import type { SourceRepository } from '../sources/repository.ts'
-import { type TranscriptionJob, type Transcriber } from './job.ts'
+import { TranscriptionFailed, type TranscriptionRunner } from './runner.ts'
+
+/** job 하나의 수명 상태. 실행 자체는 `TranscriptionRunner`가 한다. */
+export type TranscriptionJob = {
+  id: string
+  sourceId: string
+  state: TranscriptionJobState
+  attempt: number
+  error: string | null
+  /**
+   * 다시 시도해서 결과가 달라질 수 있는가.
+   *
+   * ⛔ 상태와 **따로** 둔다. `transcriptionJob` 머신에는 실패 상태가
+   *    `failed_retryable` 하나뿐이라(5절) 영구 실패를 상태로 표현할 수 없다.
+   *    화면은 이 값이 false일 때 재시도 버튼을 내지 않는다.
+   */
+  retryable: boolean
+  warning: string | null
+  audioMs: number | null
+  elapsedMs: number | null
+  segmentCount: number | null
+}
 
 const STATE_FILE = 'job.state.json'
 
@@ -27,8 +53,11 @@ export class SourceNotReadyError extends Error {
 }
 
 export type QueueDeps = {
-  transcriber: Transcriber
+  runner: TranscriptionRunner
   sources: SourceRepository
+  runs: RunArtifactStore
+  /** 중간 산출물을 놓을 곳. 전사가 끝나면 지운다 */
+  workRoot: string
   /** job 상태를 남길 곳 */
   stateRoot: string
   /** source의 조각 파일 경로를 track별·순번순으로 준다 */
@@ -158,14 +187,56 @@ export class TranscriptionQueue {
     this.jobs.set(jobId, queued)
     await this.persist(queued)
 
-    const chunkFiles = await this.deps.chunkFilesOf(sourceId)
-    const { job } = await this.deps.transcriber.transcribe({
-      jobId,
-      sourceId,
-      captureMode,
-      chunkFiles,
-      vocabulary: opts.vocabulary,
-    })
+    const job: TranscriptionJob = { ...queued, state: 'transcribing' }
+    this.jobs.set(jobId, job)
+    await this.persist(job)
+
+    const workDir = path.join(this.deps.workRoot, jobId)
+    try {
+      const chunkFiles = await this.deps.chunkFilesOf(sourceId)
+      if (!chunkFiles.mic || chunkFiles.mic.length === 0) {
+        throw new TranscriptionFailed('mic track 조각이 없어 전사할 수 없다.', false)
+      }
+
+      const result = await this.deps.runner.run({
+        sourceId,
+        captureMode,
+        chunks: { mic: chunkFiles.mic, remote: chunkFiles.remote },
+        workDir,
+        vocabulary: opts.vocabulary,
+      })
+
+      // ⛔ 불변 이력. 같은 내용 재기록은 멱등 통과, 다른 내용은 거부된다 (11절).
+      await this.deps.runs.putRawTranscript(jobId, {
+        source_id: sourceId,
+        capture_mode: captureMode,
+        language: result.language,
+        audio_ms: result.audioMs,
+        segments: result.segments,
+      })
+
+      job.state = transition(
+        'transcriptionJob',
+        'transcribing',
+        'completed'
+      ) as TranscriptionJobState
+      job.audioMs = result.audioMs
+      job.elapsedMs = result.elapsedMs
+      job.segmentCount = result.segments.length
+      job.warning = result.performanceWarning
+    } catch (e) {
+      job.error = e instanceof Error ? e.message : String(e)
+      job.retryable = e instanceof TranscriptionFailed ? e.retryable : true
+      // 실패는 언제나 failed_retryable로 간다 — 머신에 있는 유일한 실패 상태다.
+      job.state = transition(
+        'transcriptionJob',
+        'transcribing',
+        'failed_retryable'
+      ) as TranscriptionJobState
+    } finally {
+      // 중간 산출물은 지운다. 원본 조각과 transcript 이력은 남는다.
+      await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined)
+    }
 
     this.jobs.set(jobId, job)
     await this.persist(job)
