@@ -62,4 +62,22 @@ console.log('data-active:', await page.getAttribute('[data-testid=recording-visu
 console.log('data-reading:', await page.getAttribute('[data-testid=recording-visualizer]', 'data-reading'))
 console.log('경고 노출:', (await page.content()).includes('입력 레벨을 읽을 수 없습니다'))
 
+/*
+ * ⛔ **반드시 종료까지 누르고, 만든 source를 밝힌다.**
+ *    예전에는 여기서 바로 browser.close()를 했다. 서버에는 `capturing`인 채로
+ *    조각 0개짜리 source가 남았고, 3회 돌리자 사이드바에 「수집 중」 3건이
+ *    쌓여서 사용자가 치워야 했다. 탐침이 제품 상태를 더럽히면 안 된다.
+ *
+ * ⚠️ 종료해도 회의 1건은 **남는다** — 지우는 API가 아직 없다. 그래서 최소한
+ *    무엇이 생겼는지와 치우는 방법을 출력한다. 조용히 남기지 않는다.
+ */
+await page.getByRole('button', { name: /종료/ }).click()
+await page.waitForSelector('[data-testid=recording-finished]', { timeout: 30_000 })
+
+const href = await page.getAttribute('[data-testid=recording-finished] a', 'href')
+const sourceId = href?.split('/').pop()
+console.log('')
+console.log('이 탐침이 만든 회의:', sourceId)
+console.log('치우려면: rm -rf .data/blobs/' + sourceId + ' 후 서버 재시작')
+
 await browser.close()
