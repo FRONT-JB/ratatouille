@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ReviewPage } from '../review'
 import { DeleteMeeting } from './delete-meeting'
 import { ProcessingStatus } from './processing-status'
-import { TranscriptPreview } from './transcript-preview'
 import { labelFor } from './use-meetings'
 import {
   type FetchLike,
@@ -138,7 +138,7 @@ export function ProcessingPage({
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className='mx-auto flex w-full max-w-3xl flex-col gap-8 p-6 sm:p-10'>
+    <div className='mx-auto flex w-full max-w-6xl flex-col gap-8 p-6 sm:p-10'>
       <header className='flex flex-col gap-1'>
         <h1 className='text-2xl font-semibold'>회의</h1>
       </header>
@@ -148,11 +148,11 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * 전사가 끝나면 원문을 보여준다.
+ * 전사가 끝나면 교정 화면으로 바뀐다.
  *
- * ⚠️ 읽기 전용이다. 교정 UI(Phase 5)는 아직 없다. 원문을 아예 안 보여주면
- *    사용자가 "제대로 녹음됐나"를 화면에서 확인할 방법이 없다 — 실제로
- *    파형이 안 움직였을 때 녹음 성공 여부를 판단할 수 없었다.
+ * ⛔ **하나의 route 안에서 전환된다.** 페이지를 옮기지 않는다 —
+ *    화면 계약: "녹음 화면과 결과 화면이 한 페이지로 합쳐져 있지 않다"는
+ *    녹음/결과 이야기이고, 처리 중과 교정은 **같은 화면의 다른 상태**다.
  */
 function TranscriptReviewSlot({
   source,
@@ -162,5 +162,5 @@ function TranscriptReviewSlot({
   fetchFn?: FetchLike
 }) {
   if (source.job?.jobState !== 'completed') return null
-  return <TranscriptPreview jobId={source.job.id} fetchFn={fetchFn} />
+  return <ReviewPage sourceId={source.sourceId} deps={{ fetch: fetchFn }} />
 }
