@@ -2,6 +2,8 @@ node_modules/
 dist/
 .DS_Store
 *.log
+/chunk-results.json
+/apps/*/pnpm-lock.yaml
 
 # 실험 산출물 — 용량이 큰 것만 제외, RESULTS.md와 스크립트는 추적
 .experiments/models/
