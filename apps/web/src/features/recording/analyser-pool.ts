@@ -46,16 +46,27 @@ export function sharedAudioContext(): AudioContext {
   return sharedCtx
 }
 
+/**
+ * context가 실제로 돌고 있는가.
+ *
+ * ⚠️ 한 곳에서만 판단한다. 호출부마다 `ctx.state`를 직접 보면, 위에서 한 번
+ *    비교한 뒤 TS가 타입을 좁혀 두는 바람에 아래 비교가 컴파일되지 않는다.
+ */
+export function audioRunning(): boolean {
+  return sharedCtx?.state === 'running'
+}
+
 /** context가 멈춰 있으면 깨운다. 실패해도 던지지 않는다 — 파형만 안 움직인다. */
 export async function resumeAudio(): Promise<boolean> {
   const ctx = sharedAudioContext()
-  if (ctx.state === 'running') return true
-  try {
-    await ctx.resume()
-  } catch {
-    return false
+  if (ctx.state !== 'running') {
+    try {
+      await ctx.resume()
+    } catch {
+      return false
+    }
   }
-  return ctx.state === 'running'
+  return audioRunning()
 }
 
 export function acquireAnalyser(stream: MediaStream): AnalyserHandle | null {
@@ -83,7 +94,7 @@ export function acquireAnalyser(stream: MediaStream): AnalyserHandle | null {
   return {
     buffer: e.buffer,
     read: (buf) => e.analyser.getFloatTimeDomainData(buf),
-    isRunning: () => sharedCtx?.state === 'running',
+    isRunning: audioRunning,
   }
 }
 

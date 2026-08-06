@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
+import { DeleteMeeting } from './delete-meeting'
 import { ProcessingStatus } from './processing-status'
 import { TranscriptPreview } from './transcript-preview'
+import { labelFor } from './use-meetings'
 import {
   type FetchLike,
   type NextAction,
@@ -23,9 +25,17 @@ import {
 export function ProcessingPage({
   meetingId,
   deps,
+  onDeleted,
 }: {
   meetingId: string
   deps?: { fetch?: FetchLike; pollMs?: number }
+  /**
+   * 회의가 삭제됐을 때. route가 목록으로 되돌린다.
+   *
+   * ⚠️ 이 컴포넌트가 직접 `useNavigate`를 부르지 않는 이유: router 없이도
+   *    렌더할 수 있어야 테스트가 화면 계약을 검증할 수 있다.
+   */
+  onDeleted?: (sourceId: string) => void
 }) {
   const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -109,6 +119,19 @@ export function ProcessingPage({
     <Shell>
       <ProcessingStatus source={source} onAction={(a) => void onAction(a)} />
       <TranscriptReviewSlot source={source} fetchFn={fetchFn} />
+      {/*
+        ⛔ 삭제는 **맨 아래에, 조용하게** 둔다. 되돌릴 수 없는 조작을 주요
+           동작 옆에 두면 오클릭이 난다. 그래도 숨기지는 않는다 — 실제로
+           「수집 중」에서 멈춘 회의를 화면에서 치울 방법이 없었다.
+      */}
+      <div className='border-border mt-4 flex justify-end border-t pt-4'>
+        <DeleteMeeting
+          sourceId={source.sourceId}
+          label={labelFor(source)}
+          fetchFn={fetchFn}
+          onDeleted={onDeleted}
+        />
+      </div>
     </Shell>
   )
 }

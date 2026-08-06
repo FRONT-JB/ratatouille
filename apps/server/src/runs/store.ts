@@ -127,6 +127,16 @@ function canonical(value: unknown): string {
 export class RunArtifactStore {
   constructor(readonly root: string) {}
 
+  /**
+   * 저장소 안의 상대 경로를 절대 경로로.
+   *
+   * ⚠️ **읽기·쓰기에는 쓰지 않는다.** 그건 write-once 규칙을 지나가는 뒷문이
+   *    된다(11절). 삭제가 통째로 옮길 디렉토리를 가리키는 용도다.
+   */
+  pathOf(relPath: string): string {
+    return path.join(this.root, relPath)
+  }
+
   // ── sources ────────────────────────────────────────────────────────────
 
   async putSource(sourceId: string, source: unknown): Promise<void> {

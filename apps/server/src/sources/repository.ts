@@ -89,6 +89,23 @@ export class SourceRepository {
     return path.join(this.blobRoot, sourceId, STATE_FILE)
   }
 
+  /** 이 source의 모든 바이트가 있는 디렉토리. 삭제가 옮길 대상이다. */
+  rootOf(sourceId: string): string {
+    return path.join(this.blobRoot, sourceId)
+  }
+
+  /**
+   * 메모리에서 잊는다. **디스크는 건드리지 않는다.**
+   *
+   * ⛔ 이 메서드만 부르면 파일은 남고 아무도 모르는 유령이 된다. 파일을 먼저
+   *    치운 뒤에 부르는 것이 호출부의 책임이다 (`sources/delete.ts` 참조).
+   *    여기서 파일까지 지우게 만들지 않는 이유: 저장소가 삭제 정책(휴지통이냐
+   *    소거냐)을 알면 안 된다.
+   */
+  forget(sourceId: string): boolean {
+    return this.sources.delete(sourceId)
+  }
+
   /**
    * 디스크에서 진행 중이던 source를 되살린다. 서버 기동 시 한 번 부른다.
    *

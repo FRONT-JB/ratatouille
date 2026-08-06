@@ -123,10 +123,29 @@ export class TranscriptionQueue {
     return [...this.jobs.values()].sort((a, b) => a.id.localeCompare(b.id))
   }
 
+  /** 이 source에 딸린 job 전부 */
+  listFor(sourceId: string): TranscriptionJob[] {
+    return this.list().filter((j) => j.sourceId === sourceId)
+  }
+
   /** 이 source의 가장 최근 job */
   latestFor(sourceId: string): TranscriptionJob | null {
-    const mine = this.list().filter((j) => j.sourceId === sourceId)
-    return mine.at(-1) ?? null
+    return this.listFor(sourceId).at(-1) ?? null
+  }
+
+  /** 지금 실제로 whisper가 돌고 있는가. 삭제를 막는 판단에 쓴다. */
+  isRunning(sourceId: string): boolean {
+    return this.running.has(sourceId)
+  }
+
+  /** job 상태 파일이 있는 디렉토리. 삭제가 옮길 대상이다. */
+  stateDirOf(jobId: string): string {
+    return path.join(this.deps.stateRoot, jobId)
+  }
+
+  /** 메모리에서 잊는다. 디스크는 호출부가 먼저 치운다 (`sources/delete.ts`). */
+  forget(jobId: string): boolean {
+    return this.jobs.delete(jobId)
   }
 
   /**

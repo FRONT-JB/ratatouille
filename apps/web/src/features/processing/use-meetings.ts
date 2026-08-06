@@ -59,11 +59,16 @@ export function toMeetingItems(sources: SessionSource[]): MeetingListItem[] {
   )
 }
 
-export function useMeetings(deps: { fetch?: FetchLike; pollMs?: number } = {}) {
+export function useMeetings(
+  deps: { fetch?: FetchLike; pollMs?: number; revision?: unknown } = {}
+) {
   const [items, setItems] = useState<MeetingListItem[]>([])
   const [busy, setBusy] = useState(false)
   const fetchFn = deps.fetch
   const pollMs = deps.pollMs ?? 5000
+  // 이 값이 바뀌면 다시 불러온다. 사이드바는 진행 중인 것이 없으면 폴링을
+  // 멈추므로, 삭제처럼 목록을 바꾸는 일이 있으면 밖에서 알려줘야 한다.
+  const revision = deps.revision
 
   const load = useCallback(async () => {
     try {
@@ -84,7 +89,7 @@ export function useMeetings(deps: { fetch?: FetchLike; pollMs?: number } = {}) {
     return () => {
       cancelled = true
     }
-  }, [load])
+  }, [load, revision])
 
   useEffect(() => {
     if (!busy) return

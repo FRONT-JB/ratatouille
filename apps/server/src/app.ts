@@ -4,6 +4,7 @@ import { transcriptionRoutes } from './routes/transcriptions.ts'
 import type { RunArtifactStore } from './runs/store.ts'
 import type { TranscriptionQueue } from './transcription/queue.ts'
 import { SourceRepository } from './sources/repository.ts'
+import type { VaultStore } from './vault/store.ts'
 
 /**
  * Ratatouille 로컬 데몬의 Hono 앱.
@@ -21,13 +22,37 @@ export type AppDeps = {
   transcription?: TranscriptionQueue
   /** 전사 원문 조회에 필요하다 */
   runs?: RunArtifactStore
+  /**
+   * 지운 회의를 옮겨 둘 곳.
+   *
+   * ⛔ **없으면 삭제 API 자체가 열리지 않는다.** 휴지통 자리를 모르는 앱이
+   *    지우기 시작하면 그건 소거이고, raw audio는 되돌릴 수 없다(5절).
+   */
+  trashRoot?: string
+  /** 삭제 시 vault 문서까지 함께 옮기려면 필요하다 */
+  vault?: VaultStore
 }
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono()
 
   app.get('/api/health', (c) => c.json({ ok: true }))
-  app.route('/api/sources', sourcesRoutes(deps.sources, deps.publish))
+  app.route(
+    '/api/sources',
+    sourcesRoutes(
+      deps.sources,
+      deps.publish,
+      deps.trashRoot
+        ? {
+            sources: deps.sources,
+            transcription: deps.transcription,
+            runs: deps.runs,
+            vault: deps.vault,
+            trashRoot: deps.trashRoot,
+          }
+        : undefined
+    )
+  )
   if (deps.transcription) {
     app.route('/api', transcriptionRoutes(deps.sources, deps.transcription, deps.runs))
   }

@@ -12,6 +12,7 @@ import {
   describeManifestViolation,
 } from '@ratatouille/contracts'
 import { Hono } from 'hono'
+import { type DeleteDeps, SourceBusyError, deleteSource } from '../sources/delete.ts'
 import {
   ChunkConflictError,
   type SourceRecord,
@@ -44,7 +45,11 @@ function toDto(s: SourceRecord) {
  */
 export type PublishFn = (src: SourceRecord) => Promise<void>
 
-export function sourcesRoutes(repo: SourceRepository, publish?: PublishFn): Hono {
+export function sourcesRoutes(
+  repo: SourceRepository,
+  publish?: PublishFn,
+  deleteDeps?: DeleteDeps
+): Hono {
   const app = new Hono()
 
   /** 녹음 시작 — manifest를 기록한다 (PLAN.md 순서 2) */
@@ -149,6 +154,27 @@ export function sourcesRoutes(repo: SourceRepository, publish?: PublishFn): Hono
       throw e
     }
   })
+
+  /**
+   * 회의 삭제 — 소거가 아니라 휴지통 이동.
+   *
+   * ⛔ **되돌릴 수 없는 조작이므로 화면이 반드시 확인을 받는다.** 서버는 그
+   *    확인을 대신해 주지 않지만, 응답에 옮긴 자리를 실어 되찾을 길을 남긴다.
+   *
+   * `deleteDeps`가 없으면 이 경로 자체가 열리지 않는다 — 휴지통 자리를 모르는
+   * 앱이 지우기 시작하면 그게 소거다.
+   */
+  if (deleteDeps) {
+    app.delete('/:id', async (c) => {
+      try {
+        return c.json(await deleteSource(c.req.param('id'), deleteDeps))
+      } catch (e) {
+        if (e instanceof SourceNotFoundError) return c.json({ error: e.message }, 404)
+        if (e instanceof SourceBusyError) return c.json({ error: e.message }, 409)
+        throw e
+      }
+    })
+  }
 
   /** 불완전해서 Inbox에 남은 source들 */
   app.get('/', (c) => {

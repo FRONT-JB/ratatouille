@@ -91,6 +91,9 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     publish: (src) => publishSource(src, { vault, runs }),
     transcription,
     runs,
+    vault,
+    // 지운 회의는 소거하지 않고 여기로 옮긴다. 비우는 것은 사용자가 정한다.
+    trashRoot: path.join(dataRoot, 'trash'),
   }
 
   return {

@@ -1,3 +1,4 @@
+import { useLocation } from '@tanstack/react-router'
 import { Mic } from 'lucide-react'
 import { useLayout } from '@/context/layout-provider'
 import {
@@ -29,7 +30,10 @@ import type { NavGroup as NavGroupType } from './types'
  */
 export function AppSidebar() {
   const { collapsible, variant } = useLayout()
-  const { items } = useMeetings()
+  // ⛔ 경로가 바뀌면 목록을 다시 불러온다. 진행 중인 것이 없으면 폴링이
+  //    멈추므로, 회의를 지우고 돌아와도 지운 회의가 그대로 남아 있었다.
+  const { pathname } = useLocation()
+  const { items } = useMeetings({ revision: pathname })
 
   const groups: NavGroupType[] = sidebarData.navGroups.map((g) =>
     g.title === '회의'
