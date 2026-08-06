@@ -225,16 +225,19 @@ describe.skipIf(!canRunReal)('⛔ 실제 오디오 전사 — Phase 4 품질 게
     const r = await real().run(input())
 
     // 20초 오디오. 여유를 둬도 25초를 넘으면 오디오와 무관한 값이다.
-    expect(r.segments[0].startMs).toBeGreaterThanOrEqual(0)
-    expect(r.segments.at(-1)!.endMs).toBeLessThanOrEqual(25_000)
+    const first = r.segments.at(0)
+    const last = r.segments.at(-1)
+    expect(first).toBeDefined()
+    expect(last).toBeDefined()
+    expect(first!.startMs).toBeGreaterThanOrEqual(0)
+    expect(last!.endMs).toBeLessThanOrEqual(25_000)
   })
 
   it('시간이 단조 증가한다', { timeout: 300_000 }, async () => {
     const r = await real().run(input())
 
-    for (let i = 1; i < r.segments.length; i++) {
-      expect(r.segments[i].startMs).toBeGreaterThanOrEqual(r.segments[i - 1].startMs)
-    }
+    const starts = r.segments.map((s) => s.startMs)
+    expect(starts).toEqual([...starts].sort((a, b) => a - b))
   })
 
   it('원본 JSON을 보존한다', { timeout: 300_000 }, async () => {
@@ -256,7 +259,10 @@ describe.skipIf(!canRunReal)('⛔ 실제 오디오 전사 — Phase 4 품질 게
     const r = await real().run(input())
 
     const evidence = toEvidenceSegments(r.segments)
-    expect(evidence[0].timestamp).toMatch(/^\d{2}:\d{2}:\d{2},\d{3}$/)
+    expect(evidence.length).toBeGreaterThan(0)
+    for (const e of evidence) {
+      expect(e.timestamp).toMatch(/^\d{2}:\d{2}:\d{2},\d{3}$/)
+    }
     expect(evidence.map((e) => e.id)).toEqual(r.segments.map((s) => s.id))
   })
 })
