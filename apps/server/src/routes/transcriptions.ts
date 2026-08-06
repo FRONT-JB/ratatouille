@@ -11,6 +11,7 @@
 
 import { type StateRef, describeState, nextActionFor } from '@ratatouille/contracts'
 import { Hono } from 'hono'
+import type { RevisionStore } from '../revisions/store.ts'
 import type { RunArtifactStore } from '../runs/store.ts'
 import { SourceNotFoundError, type SourceRepository } from '../sources/repository.ts'
 import { formatTimestamp } from '../transcription/runner.ts'
@@ -43,7 +44,9 @@ function jobDto(j: TranscriptionJob) {
 export function transcriptionRoutes(
   sources: SourceRepository,
   queue: TranscriptionQueue,
-  runs?: RunArtifactStore
+  runs?: RunArtifactStore,
+  /** 없으면 세션에 교정 상태가 나오지 않는다 (수집만 하는 테스트용 앱) */
+  revisions?: RevisionStore
 ): Hono {
   const app = new Hono()
 
@@ -144,6 +147,13 @@ export function transcriptionRoutes(
         captureMode: s.manifest?.captureMode ?? null,
         startedAt: s.manifest?.startedAt ?? null,
         job: job ? jobDto(job) : null,
+        /*
+         * ⛔ 교정본 상태를 **따로** 낸다. job이 `completed`인 것과 사람이
+         *    전사를 확정한 것은 전혀 다른 사실인데, 하나로 뭉치면 화면이
+         *    "전사 끝남"과 "교정 끝남"을 구분하지 못한다.
+         *    아직 전사가 없으면 null이다 — 없는 것을 있는 척하지 않는다.
+         */
+        revisionState: revisions?.current(s.id)?.state ?? null,
         // job이 있으면 job의 다음 조작이, 없으면 source의 다음 조작이 우선한다.
         // 전사가 돌고 있는데 "전사 시작"을 권하면 중복 실행을 유도한다.
         nextAction: job

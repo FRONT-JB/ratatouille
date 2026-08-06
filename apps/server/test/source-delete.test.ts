@@ -18,6 +18,7 @@ import * as path from 'node:path'
 import type { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.ts'
+import { RevisionStore } from '../src/revisions/store.ts'
 import { RunArtifactStore } from '../src/runs/store.ts'
 import { publishSource } from '../src/sources/publish.ts'
 import { SourceRepository } from '../src/sources/repository.ts'
@@ -29,6 +30,7 @@ let root: string
 let sources: SourceRepository
 let queue: TranscriptionQueue
 let runs: RunArtifactStore
+let revisions: RevisionStore
 let vault: VaultStore
 let app: Hono
 
@@ -93,6 +95,7 @@ beforeEach(async () => {
   await vault.init()
   runs = new RunArtifactStore(path.join(root, 'runs'))
   sources = new SourceRepository(path.join(root, 'blobs'))
+  revisions = new RevisionStore({ stateRoot: path.join(root, 'revisions'), runs })
   queue = new TranscriptionQueue({
     runner: new TranscriptionRunner({ modelPath: '/m/model.bin', spawnFn: fakeSpawn() }),
     sources,
@@ -100,11 +103,15 @@ beforeEach(async () => {
     workRoot: path.join(root, 'work'),
     stateRoot: path.join(root, 'jobs'),
     chunkFilesOf: async (id) => sources.chunkFiles(id),
+    onCompleted: async ({ job, segments }) => {
+      await revisions.open({ sourceId: job.sourceId, jobId: job.id, segments })
+    },
   })
   app = createApp({
     sources,
     transcription: queue,
     runs,
+    revisions,
     vault,
     publish: (src) => publishSource(src, { vault, runs }),
     trashRoot: path.join(root, 'trash'),
@@ -252,6 +259,38 @@ describe('⛔ 지운 것을 되찾을 수 있다 — 휴지통', () => {
       await exists(path.join(body.trashPath, 'runs/transcriptions', job.id))
     ).toBe(true)
     expect(await exists(path.join(body.trashPath, 'jobs', job.id))).toBe(true)
+  })
+
+  it('⛔ 전사 교정본도 함께 간다 — 사람이 고친 문장이다', async () => {
+    await readySource()
+    await app.request('/api/sources/src_01/transcribe', { method: 'POST' })
+    await app.request('/api/sources/src_01/revision', {
+      method: 'PATCH',
+      body: JSON.stringify({ segments: [{ id: 'seg_0', text: '사람이 고친 문장' }] }),
+      headers: { 'content-type': 'application/json' },
+    })
+    expect(await exists(path.join(root, 'revisions/src_01'))).toBe(true)
+
+    const body = await json(await del())
+
+    expect(await exists(path.join(root, 'revisions/src_01'))).toBe(false)
+    expect(await exists(path.join(body.trashPath, 'revisions/src_01'))).toBe(true)
+  })
+
+  it('⛔ 지운 뒤 같은 id로 새로 녹음해도 옛 교정 내용이 붙지 않는다', async () => {
+    await readySource()
+    await app.request('/api/sources/src_01/transcribe', { method: 'POST' })
+    await app.request('/api/sources/src_01/revision', {
+      method: 'PATCH',
+      body: JSON.stringify({ segments: [{ id: 'seg_0', text: '옛 회의 내용' }] }),
+      headers: { 'content-type': 'application/json' },
+    })
+    await del()
+    await start('src_01')
+
+    const res = await app.request('/api/sources/src_01/revision')
+    // 전사가 없으니 교정할 것도 없다. 200으로 옛 내용을 주면 안 된다.
+    expect(res.status).toBe(404)
   })
 
   it('무엇을 옮겼는지 응답에 적힌다', async () => {

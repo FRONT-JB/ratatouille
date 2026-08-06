@@ -42,6 +42,16 @@ export type DeleteDeps = {
    *    파생물이라 잃는 것이 없다. 남겨두면 지운 회의의 소리가 계속 재생된다.
    */
   audio?: { invalidate: (sourceId: string) => Promise<void> }
+  /**
+   * 전사 교정본.
+   *
+   * ⛔ 함께 치우지 않으면 회의를 지운 뒤 같은 id로 새로 녹음했을 때 **옛 교정
+   *    내용이 새 회의에 붙는다.** 사람이 고친 문장이라 휴지통으로 옮긴다.
+   */
+  revisions?: {
+    forget: (sourceId: string) => boolean
+    stateDirOf: (sourceId: string) => string
+  }
   /** 옮겨 둘 곳. 없으면 삭제 자체를 열지 않는다 */
   trashRoot: string
   /** 휴지통 폴더 이름에 붙일 시각. 테스트에서 고정할 수 있게 주입한다 */
@@ -143,11 +153,23 @@ export async function deleteSource(
     }
   }
 
+  if (deps.revisions) {
+    if (
+      await move(
+        deps.revisions.stateDirOf(sourceId),
+        path.join(dir, 'revisions', sourceId)
+      )
+    ) {
+      moved.push('revisions')
+    }
+  }
+
   await deps.audio?.invalidate(sourceId).catch(() => undefined)
 
   // ⛔ 디스크를 옮긴 **뒤에** 메모리에서 지운다. 순서를 바꾸면 중간에 죽었을 때
   //    파일은 남았는데 아무도 그 존재를 모르는 상태가 된다.
   deps.sources.forget(sourceId)
+  deps.revisions?.forget(sourceId)
   for (const job of jobs) deps.transcription?.forget(job.id)
 
   // 파생 인덱스는 vault를 따라간다 — watcher가 파일이 사라진 것을 보고 지운다.

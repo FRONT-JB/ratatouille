@@ -13,6 +13,7 @@
 import * as path from 'node:path'
 import { type AppDeps, createApp } from './app.ts'
 import { AudioPublisher } from './audio/publisher.ts'
+import { RevisionStore } from './revisions/store.ts'
 import { VaultIndex } from './index-db/indexer.ts'
 import { RunArtifactStore } from './runs/store.ts'
 import { publishSource } from './sources/publish.ts'
@@ -24,6 +25,7 @@ import { VaultWatcher } from './vault/watcher.ts'
 
 export type Runtime = {
   vault: VaultStore
+  revisions: RevisionStore
   index: VaultIndex
   watcher: VaultWatcher
   sources: SourceRepository
@@ -71,6 +73,15 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
   })
   watcher.start()
 
+  const revisions = new RevisionStore({
+    stateRoot: path.join(dataRoot, 'revisions'),
+    runs,
+  })
+  const recoveredRevisions = await revisions.load()
+  if (recoveredRevisions > 0) {
+    console.log(`[boot] 전사 교정본 ${recoveredRevisions}건 복구`)
+  }
+
   const transcription = new TranscriptionQueue({
     runner: new TranscriptionRunner({
       modelPath:
@@ -83,6 +94,10 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     workRoot: path.join(dataRoot, 'work'),
     stateRoot: path.join(dataRoot, 'jobs'),
     chunkFilesOf: async (id) => sources.chunkFiles(id),
+    // 전사가 끝나면 교정본이 열린다. 조회가 자원을 만들게 두지 않는다.
+    onCompleted: async ({ job, segments }) => {
+      await revisions.open({ sourceId: job.sourceId, jobId: job.id, segments })
+    },
   })
   const recoveredJobs = await transcription.load()
   if (recoveredJobs > 0) console.log(`[boot] 전사 job ${recoveredJobs}건 복구`)
@@ -99,6 +114,7 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     publish: (src) => publishSource(src, { vault, runs }),
     transcription,
     runs,
+    revisions,
     vault,
     // 지운 회의는 소거하지 않고 여기로 옮긴다. 비우는 것은 사용자가 정한다.
     trashRoot: path.join(dataRoot, 'trash'),
@@ -106,6 +122,7 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
 
   return {
     vault,
+    revisions,
     index,
     watcher,
     sources,

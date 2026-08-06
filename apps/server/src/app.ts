@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import type { AudioPublisher } from './audio/publisher.ts'
+import type { RevisionStore } from './revisions/store.ts'
 import { audioRoutes } from './routes/audio.ts'
+import { revisionRoutes } from './routes/revisions.ts'
 import { type PublishFn, sourcesRoutes } from './routes/sources.ts'
 import { transcriptionRoutes } from './routes/transcriptions.ts'
 import type { RunArtifactStore } from './runs/store.ts'
@@ -35,6 +37,8 @@ export type AppDeps = {
   vault?: VaultStore
   /** 없으면 재생 경로를 열지 않는다 (수집만 하는 테스트용 앱) */
   audio?: AudioPublisher
+  /** 없으면 전사 교정 경로를 열지 않는다 */
+  revisions?: RevisionStore
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -53,6 +57,7 @@ export function createApp(deps: AppDeps): Hono {
             runs: deps.runs,
             vault: deps.vault,
             audio: deps.audio,
+            revisions: deps.revisions,
             trashRoot: deps.trashRoot,
           }
         : undefined
@@ -61,8 +66,17 @@ export function createApp(deps: AppDeps): Hono {
   if (deps.audio) {
     app.route('/api/sources', audioRoutes(deps.sources, deps.audio))
   }
+  if (deps.revisions && deps.transcription && deps.runs) {
+    app.route(
+      '/api/sources',
+      revisionRoutes(deps.sources, deps.transcription, deps.revisions, deps.runs)
+    )
+  }
   if (deps.transcription) {
-    app.route('/api', transcriptionRoutes(deps.sources, deps.transcription, deps.runs))
+    app.route(
+      '/api',
+      transcriptionRoutes(deps.sources, deps.transcription, deps.runs, deps.revisions)
+    )
   }
 
   return app

@@ -63,6 +63,20 @@ export type QueueDeps = {
   /** source의 조각 파일 경로를 track별·순번순으로 준다 */
   chunkFilesOf: (sourceId: string) => Promise<Partial<Record<'mic' | 'remote', string[]>>>
   newJobId?: (sourceId: string, attempt: number) => string
+  /**
+   * 전사가 끝났을 때. **교정본을 여는 자리다.**
+   *
+   * ⛔ 화면 요청(GET)이 교정본을 만들게 두지 않는다. `/session`은 1.5초마다
+   *    폴링되는데, 조회가 자원을 만들면 언제 무엇이 생겼는지 알 수 없다.
+   *    교정본은 "전사가 끝났다"는 **사건**에서 생긴다.
+   *
+   * ⚠️ 여기서 실패해도 전사를 실패로 만들지 않는다. transcript는 이미 불변
+   *    이력에 안전하게 들어갔고, 교정본은 조회 시점에 다시 열 수 있다.
+   */
+  onCompleted?: (input: {
+    job: TranscriptionJob
+    segments: { id: string; startMs: number; endMs: number; text: string }[]
+  }) => Promise<void>
 }
 
 export class TranscriptionQueue {
@@ -243,6 +257,11 @@ export class TranscriptionQueue {
       job.elapsedMs = result.elapsedMs
       job.segmentCount = result.segments.length
       job.warning = result.performanceWarning
+
+      // 교정본 열기가 실패해도 전사는 성공이다. 조회 시점에 다시 열린다.
+      await this.deps
+        .onCompleted?.({ job, segments: result.segments })
+        .catch((e) => console.error(`[transcription] ${jobId} 교정본 열기 실패:`, e))
     } catch (e) {
       job.error = e instanceof Error ? e.message : String(e)
       job.retryable = e instanceof TranscriptionFailed ? e.retryable : true
