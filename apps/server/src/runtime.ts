@@ -12,6 +12,7 @@
 
 import * as path from 'node:path'
 import { type AppDeps, createApp } from './app.ts'
+import { DecisionStore } from './decisions/store.ts'
 import { AudioPublisher } from './audio/publisher.ts'
 import { DEFAULT_PROVENANCE, DocumentQueue } from './documents/queue.ts'
 import { DocumentRunner } from './documents/runner.ts'
@@ -111,6 +112,9 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     workRoot: path.join(dataRoot, 'work'),
   })
 
+  // 결정 사항은 회의록과 **별도 entity**로 vault에 산다 (9절, GOAL 6.10)
+  const decisions = new DecisionStore(vault)
+
   const documents = new DocumentQueue({
     runner: new DocumentRunner({
       profile: process.env.RATATOUILLE_HERMES_PROFILE,
@@ -120,6 +124,7 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     runs,
     // ⛔ vault가 원본이다. 확정 문서가 여기까지 와야 앱 밖에서도 산다
     vault,
+    decisions,
     stateRoot: path.join(dataRoot, 'document-runs'),
     provenance: DEFAULT_PROVENANCE,
   })
@@ -134,6 +139,7 @@ export async function boot(opts: BootOptions): Promise<Runtime> {
     runs,
     revisions,
     documents,
+    decisions,
     vault,
     // 지운 회의는 소거하지 않고 여기로 옮긴다. 비우는 것은 사용자가 정한다.
     trashRoot: path.join(dataRoot, 'trash'),

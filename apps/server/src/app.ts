@@ -2,7 +2,9 @@ import { Hono } from 'hono'
 import type { AudioPublisher } from './audio/publisher.ts'
 import type { RevisionStore } from './revisions/store.ts'
 import type { DocumentQueue } from './documents/queue.ts'
+import type { DecisionStore } from './decisions/store.ts'
 import { audioRoutes } from './routes/audio.ts'
+import { decisionRoutes } from './routes/decisions.ts'
 import { documentRoutes } from './routes/documents.ts'
 import { revisionRoutes } from './routes/revisions.ts'
 import { type PublishFn, sourcesRoutes } from './routes/sources.ts'
@@ -43,6 +45,8 @@ export type AppDeps = {
   revisions?: RevisionStore
   /** 없으면 AI 정리 경로를 열지 않는다 */
   documents?: DocumentQueue
+  /** 없으면 결정 사항 경로를 열지 않는다 (vault가 있어야 만들 수 있다) */
+  decisions?: DecisionStore
 }
 
 export function createApp(deps: AppDeps): Hono {
@@ -78,6 +82,9 @@ export function createApp(deps: AppDeps): Hono {
   }
   if (deps.documents) {
     app.route('/api/sources', documentRoutes(deps.documents))
+  }
+  if (deps.decisions) {
+    app.route('/api/sources', decisionRoutes(deps.decisions))
   }
   if (deps.transcription) {
     app.route(

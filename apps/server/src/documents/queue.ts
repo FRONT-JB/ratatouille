@@ -37,6 +37,7 @@ import {
   canPromoteToProposed,
   transition,
 } from '@ratatouille/contracts'
+import type { DecisionStore } from '../decisions/store.ts'
 import type { RevisionStore } from '../revisions/store.ts'
 import type { VaultStore } from '../vault/store.ts'
 import { meetingNotePath, renderMeetingNote } from './markdown.ts'
@@ -158,6 +159,13 @@ export type DocumentQueueDeps = {
    *    검수 결과를 잃으면 안 된다. 다만 있으면 반드시 쓴다 — vault가 원본이다.
    */
   vault?: VaultStore
+  /**
+   * 결정 사항 entity가 사는 곳.
+   *
+   * ⛔ **없어도 확정은 된다.** vault와 같은 이유다 — 결정을 못 썼다고 검수
+   *    결과를 잃으면 안 된다.
+   */
+  decisions?: DecisionStore
   stateRoot: string
   now?: () => Date
   /**
@@ -420,7 +428,57 @@ export class DocumentQueue {
     await this.persist(run)
     await this.recordReview(run)
     await this.writeNote(run)
+    await this.writeDecisions(run)
     return run
+  }
+
+  /**
+   * 확정된 결정을 **작업과 별도 entity**로 남긴다 — 9절, GOAL 6.10.
+   *
+   * ⛔ **회의록 본문만으로는 부족하다.** 결정이 회의록 안 문단으로만 있으면
+   *    "지난달에 뭘 정했더라"를 물을 수 없다. 그게 회의록을 쌓는 이유의 절반이다.
+   *
+   * ⛔ **재확정에서 빠진 결정을 지우지 않는다.** 사람이 검수 중 결정 하나를
+   *    지웠다면 그건 «없던 일로 한다»는 뜻이지 «기록을 없앤다»가 아니다.
+   *    파일은 남기고 `reversed`로 표시한다.
+   */
+  private async writeDecisions(run: DocumentRun): Promise<void> {
+    const store = this.deps.decisions
+    if (!store || !run.proposal) return
+
+    const decidedAt = this.now()
+    const alive = new Set<string>()
+    for (const [i, d] of run.proposal.decisions.entries()) {
+      /*
+       * ⛔ id는 «어느 실행의 몇 번째»다. 내용으로 만들면 오타 하나 고칠 때마다
+       *    새 결정이 생기고, 순번만 쓰면 회의끼리 부딪힌다.
+       */
+      const id = `dec_${run.id}_${i + 1}`
+      alive.add(id)
+      const existing = await store.get(id)
+      await store.put(
+        {
+          id,
+          sourceId: run.sourceId,
+          runId: run.id,
+          what: d.what,
+          // 사람이 채운 값은 다시 확정해도 지우지 않는다
+          why: existing?.why ?? null,
+          who: existing?.who ?? null,
+          evidence: d.evidence,
+          state: existing?.state ?? 'active',
+          decidedAt: existing?.decidedAt ?? decidedAt,
+          supersedes: existing?.supersedes ?? null,
+        },
+        run.proposal.evidence
+      )
+    }
+
+    for (const previous of await store.listFor(run.sourceId)) {
+      if (previous.runId !== run.id) continue
+      if (alive.has(previous.id) || previous.state !== 'active') continue
+      await store.reverse(previous.id)
+    }
   }
 
   /**

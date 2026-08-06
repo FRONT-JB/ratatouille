@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import * as path from 'node:path'
 import { type DocumentReview, RuleViolationError } from '@ratatouille/contracts'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { DecisionStore } from '../src/decisions/store.ts'
 import { DEFAULT_PROVENANCE, DocumentQueue } from '../src/documents/queue.ts'
 import { DocumentRunner, looksLikeAuthFailure } from '../src/documents/runner.ts'
 import { RevisionStore } from '../src/revisions/store.ts'
@@ -27,6 +28,7 @@ let revisions: RevisionStore
 let runs: RunArtifactStore
 let queue: DocumentQueue
 let vault: VaultStore
+let decisions: DecisionStore
 
 /** 모델이 돌려줄 JSON. 테스트마다 갈아끼운다 */
 let modelOutput: string
@@ -103,12 +105,14 @@ beforeEach(async () => {
   revisions = new RevisionStore({ stateRoot: path.join(root, 'revisions'), runs })
   vault = new VaultStore(path.join(root, 'vault'))
   await vault.init()
+  decisions = new DecisionStore(vault)
   queue = new DocumentQueue({
     runner: new DocumentRunner({ spawnFn: fakeHermes() }),
     sources,
     revisions,
     runs,
     vault,
+    decisions,
     stateRoot: path.join(root, 'docruns'),
     provenance: DEFAULT_PROVENANCE,
   })
@@ -690,6 +694,119 @@ describe('⛔ 확정하면 vault에 남는다 — 9절', () => {
     }
     await noVault.review(run.id, 'tasks', { state: 'empty' })
     expect((await noVault.promote(run.id)).documentState).toBe('current')
+  })
+})
+
+/**
+ * GOAL 6.10 — 결정 사항은 작업과 **별도 entity**다.
+ *
+ * ⛔ 회의록 안 문단으로만 두면 "지난달에 뭘 정했더라"를 물을 수 없다.
+ *    그게 회의록을 쌓는 이유의 절반이다.
+ */
+describe('⛔ 확정하면 결정이 별도 entity로 남는다 — 6.10', () => {
+  const acceptAll = async (runId: string) => {
+    for (const s of ['summary', 'decisions', 'evidence'] as const) {
+      await queue.review(runId, s, { state: 'accepted' })
+    }
+    await queue.review(runId, 'tasks', { state: 'empty' })
+  }
+
+  it('결정마다 파일 하나가 생긴다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await acceptAll(run.id)
+    await queue.promote(run.id)
+
+    const all = await decisions.listFor('src_01')
+    expect(all).toHaveLength(1)
+    expect(all[0]).toMatchObject({
+      sourceId: 'src_01',
+      runId: run.id,
+      state: 'active',
+      what: expect.stringContaining('3월 16일'),
+      // 결정자와 이유는 모델에게 받지 않는다. 사람이 채운다
+      who: null,
+      why: null,
+    })
+  })
+
+  it('확정 전에는 결정 파일이 없다', async () => {
+    await withRevision()
+    await queue.enqueue('src_01')
+    expect(await decisions.listFor('src_01')).toEqual([])
+  })
+
+  it('결정이 없던 회의는 파일을 만들지 않는다', async () => {
+    modelOutput = JSON.stringify({
+      summary: { text: '가볍게 이야기했다[seg_0].', evidence: ['seg_0'] },
+      decisions: [],
+      tasks: [],
+      evidence: [{ id: 'seg_0', timestamp: '00:00:00', quote: '결제 모듈 오픈을 연기합니다.' }],
+    })
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    for (const s of ['summary', 'evidence'] as const) {
+      await queue.review(run.id, s, { state: 'accepted' })
+    }
+    for (const s of ['decisions', 'tasks'] as const) {
+      await queue.review(run.id, s, { state: 'empty' })
+    }
+    await queue.promote(run.id)
+
+    expect(await decisions.listFor('src_01')).toEqual([])
+  })
+
+  it('⛔ 재확정에서 지운 결정은 파일을 지우지 않고 reversed로 남긴다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await acceptAll(run.id)
+    await queue.promote(run.id)
+
+    // 검수에서 「제안을 결정으로 승격」한 것을 발견해 지운다 (결함 B)
+    await queue.reopen(run.id)
+    await queue.edit(run.id, { section: 'decisions', kind: 'remove', index: 0 })
+    await queue.review(run.id, 'decisions', { state: 'empty' })
+    await queue.promote(run.id)
+
+    const all = await decisions.listFor('src_01')
+    expect(all).toHaveLength(1)
+    expect(all[0]?.state).toBe('reversed')
+    // 내용이 남아야 "그때 무엇을 정했다고 봤나"를 되짚을 수 있다
+    expect(all[0]?.what).toContain('3월 16일')
+  })
+
+  it('⛔ 다시 확정해도 사람이 채운 결정자를 지우지 않는다', async () => {
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+    await acceptAll(run.id)
+    await queue.promote(run.id)
+
+    const id = (await decisions.listFor('src_01'))[0]!.id
+    await decisions.annotate(id, { who: '이한결' })
+
+    await queue.reopen(run.id)
+    await queue.promote(run.id)
+
+    expect((await decisions.get(id))?.who).toBe('이한결')
+  })
+
+  it('결정 저장소가 없어도 확정은 된다', async () => {
+    const noDecisions = new DocumentQueue({
+      runner: new DocumentRunner({ spawnFn: fakeHermes() }),
+      sources,
+      revisions,
+      runs,
+      vault,
+      stateRoot: path.join(root, 'docruns3'),
+      provenance: DEFAULT_PROVENANCE,
+    })
+    await withRevision('src_03')
+    const run = await noDecisions.enqueue('src_03')
+    for (const s of ['summary', 'decisions', 'evidence'] as const) {
+      await noDecisions.review(run.id, s, { state: 'accepted' })
+    }
+    await noDecisions.review(run.id, 'tasks', { state: 'empty' })
+    expect((await noDecisions.promote(run.id)).documentState).toBe('current')
   })
 })
 

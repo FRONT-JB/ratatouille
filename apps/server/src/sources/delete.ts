@@ -18,6 +18,7 @@ import * as path from 'node:path'
 import type { RunArtifactStore } from '../runs/store.ts'
 import type { TranscriptionQueue } from '../transcription/queue.ts'
 import type { VaultStore } from '../vault/store.ts'
+import { meetingNotePath } from '../documents/markdown.ts'
 import { sourceVaultPath } from './publish.ts'
 import { SourceNotFoundError, type SourceRepository } from './repository.ts'
 
@@ -115,9 +116,22 @@ export async function deleteSource(
   if (await move(blobRoot, path.join(dir, 'blobs'))) moved.push('blobs')
 
   if (deps.vault) {
-    const rel = sourceVaultPath(sourceId)
-    if (await move(path.join(deps.vault.root, rel), path.join(dir, 'vault', rel))) {
-      moved.push('vault')
+    /*
+     * ⛔ **이 회의에 딸린 vault 문서를 전부 옮긴다.** 한동안 `sources/`만
+     *    옮기고 있었다 — 회의록(`notes/`)이 남아 지운 회의가 계속 검색에
+     *    잡혔다. 결정 사항까지 생기면서 남는 것이 셋이 될 참이었다.
+     */
+    for (const rel of [sourceVaultPath(sourceId), meetingNotePath(sourceId)]) {
+      if (await move(path.join(deps.vault.root, rel), path.join(dir, 'vault', rel))) {
+        moved.push('vault')
+      }
+    }
+    for (const rel of await deps.vault.listMarkdown('decisions')) {
+      const doc = await deps.vault.read(rel)
+      if (doc?.frontmatter.source_id !== sourceId) continue
+      if (await move(path.join(deps.vault.root, rel), path.join(dir, 'vault', rel))) {
+        moved.push('vault')
+      }
     }
   }
 

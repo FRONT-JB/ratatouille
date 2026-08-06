@@ -245,6 +245,38 @@ describe('⛔ 지운 것을 되찾을 수 있다 — 휴지통', () => {
     expect(await exists(path.join(body.trashPath, 'vault/sources/src_01.md'))).toBe(true)
   })
 
+  /*
+   * ⛔ **한 회의에 딸린 vault 문서를 전부 옮긴다.** 회의록만 남으면 지운 회의가
+   *    검색에 계속 잡히고, 결정 파일만 남으면 근거를 따라갈 회의록이 없다.
+   *    삭제가 반쪽이면 사용자는 두 번 지워야 한다 — 어디를 지울지도 모른 채로.
+   */
+  it('회의록과 결정 사항도 함께 간다', async () => {
+    await readySource()
+    await vault.write('notes/src_01.md', {
+      frontmatter: { source_id: 'src_01' },
+      body: '## 요약\n\n오픈을 연기했다.\n',
+    })
+    await vault.write('decisions/dec_src_01_1.md', {
+      frontmatter: { decision_id: 'dec_src_01_1', source_id: 'src_01', status: 'active' },
+      body: '오픈을 연기한다.\n',
+    })
+    // 다른 회의의 결정은 건드리지 않는다
+    await vault.write('decisions/dec_src_02_1.md', {
+      frontmatter: { decision_id: 'dec_src_02_1', source_id: 'src_02', status: 'active' },
+      body: '다른 회의의 결정.\n',
+    })
+
+    const body = await json(await del())
+
+    expect(await exists(path.join(root, 'vault/notes/src_01.md'))).toBe(false)
+    expect(await exists(path.join(body.trashPath, 'vault/notes/src_01.md'))).toBe(true)
+    expect(await exists(path.join(root, 'vault/decisions/dec_src_01_1.md'))).toBe(false)
+    expect(
+      await exists(path.join(body.trashPath, 'vault/decisions/dec_src_01_1.md'))
+    ).toBe(true)
+    expect(await exists(path.join(root, 'vault/decisions/dec_src_02_1.md'))).toBe(true)
+  })
+
   it('전사 원문과 job 상태도 함께 간다 — 조각만 옮기면 반쪽이다', async () => {
     await readySource()
     const job = await json(
