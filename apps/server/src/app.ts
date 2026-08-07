@@ -66,6 +66,8 @@ export function createApp(deps: AppDeps): Hono {
             vault: deps.vault,
             audio: deps.audio,
             revisions: deps.revisions,
+            // ⛔ 빠뜨리면 지운 회의의 정리 결과가 유령으로 남는다
+            documents: deps.documents,
             trashRoot: deps.trashRoot,
           }
         : undefined

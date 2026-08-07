@@ -53,6 +53,18 @@ export type DeleteDeps = {
     forget: (sourceId: string) => boolean
     stateDirOf: (sourceId: string) => string
   }
+  /**
+   * AI 정리 실행.
+   *
+   * ⛔ 함께 치우지 않으면 **목록에서는 사라졌는데 검수 화면에서는 살아 있는**
+   *    유령이 된다. 같은 id로 새 회의를 만들면 「최신 정리」가 지운 회의의
+   *    결정과 할 일을 돌려준다. 사람이 검수한 내용이라 휴지통으로 옮긴다.
+   */
+  documents?: {
+    listFor: (sourceId: string) => readonly { id: string }[]
+    stateDirOf: (runId: string) => string
+    forget: (runId: string) => boolean
+  }
   /** 옮겨 둘 곳. 없으면 삭제 자체를 열지 않는다 */
   trashRoot: string
   /** 휴지통 폴더 이름에 붙일 시각. 테스트에서 고정할 수 있게 주입한다 */
@@ -103,6 +115,7 @@ export async function deleteSource(
   deps.sources.get(sourceId)
 
   const jobs = deps.transcription?.listFor(sourceId) ?? []
+  const docRuns = deps.documents?.listFor(sourceId) ?? []
   // ⛔ 돌고 있는 전사가 읽는 중인 조각을 치우면, 전사는 알 수 없는 이유로
   //    깨지고 사용자는 원인을 모른다. 끝나기를 기다리게 한다.
   if (deps.transcription?.isRunning(sourceId)) {
@@ -154,6 +167,16 @@ export async function deleteSource(
         moved.push('runs/transcriptions')
       }
     }
+    for (const run of docRuns) {
+      if (
+        await move(
+          deps.runs.pathOf(path.join('documentation-runs', run.id)),
+          path.join(dir, 'runs/documentation-runs', run.id)
+        )
+      ) {
+        moved.push('runs/documentation-runs')
+      }
+    }
   }
 
   for (const job of jobs) {
@@ -178,6 +201,14 @@ export async function deleteSource(
     }
   }
 
+  for (const run of docRuns) {
+    if (
+      await move(deps.documents!.stateDirOf(run.id), path.join(dir, 'documents', run.id))
+    ) {
+      moved.push('documents')
+    }
+  }
+
   await deps.audio?.invalidate(sourceId).catch(() => undefined)
 
   // ⛔ 디스크를 옮긴 **뒤에** 메모리에서 지운다. 순서를 바꾸면 중간에 죽었을 때
@@ -185,6 +216,7 @@ export async function deleteSource(
   deps.sources.forget(sourceId)
   deps.revisions?.forget(sourceId)
   for (const job of jobs) deps.transcription?.forget(job.id)
+  for (const run of docRuns) deps.documents?.forget(run.id)
 
   // 파생 인덱스는 vault를 따라간다 — watcher가 파일이 사라진 것을 보고 지운다.
   // 여기서 직접 건드리지 않는다(9절: SQLite는 파생물이다).

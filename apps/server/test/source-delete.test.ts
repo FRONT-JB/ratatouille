@@ -18,6 +18,8 @@ import * as path from 'node:path'
 import type { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createApp } from '../src/app.ts'
+import { DEFAULT_PROVENANCE, DocumentQueue } from '../src/documents/queue.ts'
+import { DocumentRunner } from '../src/documents/runner.ts'
 import { RevisionStore } from '../src/revisions/store.ts'
 import { RunArtifactStore } from '../src/runs/store.ts'
 import { publishSource } from '../src/sources/publish.ts'
@@ -32,7 +34,33 @@ let queue: TranscriptionQueue
 let runs: RunArtifactStore
 let revisions: RevisionStore
 let vault: VaultStore
+let documents: DocumentQueue
 let app: Hono
+
+/** AI 정리가 돌려줄 결과. 근거는 전사에 실재하는 seg_0 하나면 된다 */
+const MODEL_OUT = JSON.stringify({
+  summary: { text: '인사했다[seg_0].' },
+  decisions: [],
+  tasks: [],
+})
+
+/** Hermes 대신. 실제 호출 검증은 document runner 테스트가 한다 */
+function fakeHermes() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (() => {
+    const emitter = new EventEmitter() as any
+    emitter.stdout = new EventEmitter()
+    emitter.stderr = new EventEmitter()
+    emitter.kill = () => undefined
+    void (async () => {
+      await Promise.resolve()
+      emitter.stdout.emit('data', MODEL_OUT)
+      emitter.emit('close', 0)
+    })()
+    return emitter
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }) as any
+}
 
 const WHISPER_OUT = {
   result: { language: 'ko' },
@@ -107,11 +135,21 @@ beforeEach(async () => {
       await revisions.open({ sourceId: job.sourceId, jobId: job.id, segments })
     },
   })
+  documents = new DocumentQueue({
+    runner: new DocumentRunner({ spawnFn: fakeHermes() }),
+    sources,
+    revisions,
+    runs,
+    vault,
+    stateRoot: path.join(root, 'docruns'),
+    provenance: DEFAULT_PROVENANCE,
+  })
   app = createApp({
     sources,
     transcription: queue,
     runs,
     revisions,
+    documents,
     vault,
     publish: (src) => publishSource(src, { vault, runs }),
     trashRoot: path.join(root, 'trash'),
@@ -275,6 +313,40 @@ describe('⛔ 지운 것을 되찾을 수 있다 — 휴지통', () => {
       await exists(path.join(body.trashPath, 'vault/decisions/dec_src_01_1.md'))
     ).toBe(true)
     expect(await exists(path.join(root, 'vault/decisions/dec_src_02_1.md'))).toBe(true)
+  })
+
+  /*
+   * ⛔ **AI 정리 결과도 함께 간다.** 실제로 겪었다 — 회의를 지웠는데
+   *    `document-runs/`가 남아 서버 메모리에도 그대로 있었다. 같은 id로 새
+   *    회의를 만들면 «최신 정리»가 **지운 회의의 결정과 할 일**을 돌려준다.
+   *    목록에서는 사라졌는데 검수 화면에서는 살아 있는 유령이다.
+   */
+  it('⛔ AI 정리 결과와 실행 이력도 함께 간다', async () => {
+    await readySource()
+    await app.request('/api/sources/src_01/transcribe', { method: 'POST' })
+    await revisions.approve('src_01')
+    const run = await documents.enqueue('src_01')
+    expect(run.state).toBe('proposed')
+
+    const body = await json(await del())
+
+    expect(await exists(path.join(root, 'docruns', run.id))).toBe(false)
+    expect(await exists(path.join(body.trashPath, 'documents', run.id))).toBe(true)
+    expect(
+      await exists(path.join(body.trashPath, 'runs/documentation-runs', run.id))
+    ).toBe(true)
+  })
+
+  it('⛔ 지운 회의의 정리 결과가 새 회의에 붙지 않는다', async () => {
+    await readySource()
+    await app.request('/api/sources/src_01/transcribe', { method: 'POST' })
+    await revisions.approve('src_01')
+    await documents.enqueue('src_01')
+
+    await del()
+
+    // 같은 id로 다시 시작해도 옛 결정·할 일이 따라오면 안 된다
+    expect(documents.latestFor('src_01')).toBeNull()
   })
 
   it('전사 원문과 job 상태도 함께 간다 — 조각만 옮기면 반쪽이다', async () => {
