@@ -4,6 +4,7 @@ import {
   type TranscriptSegment,
   canPromoteToProposed,
   describeViolation,
+  normalizeTaskMetadata,
   verifyEvidence,
 } from '../src/evidence.ts'
 import realProposal from './fixtures/meeting-proposal.json' with { type: 'json' }
@@ -14,6 +15,22 @@ const segments: TranscriptSegment[] = [
   { id: 'seg001', timestamp: '00:00:05', text: '네, 그렇게 가시죠.' },
   { id: 'seg002', timestamp: '00:00:10', text: '계약서는 금요일까지 볼게요.' },
 ]
+
+describe('Action Item 짧은 메타데이터', () => {
+  it('본문용 근거 마커를 담당자와 기한에서 제거한다', () => {
+    expect(normalizeTaskMetadata('이한결[seg_53]')).toBe('이한결')
+    expect(normalizeTaskMetadata(' 운영 배포 시 [seg_61] ')).toBe('운영 배포 시')
+  })
+
+  it('근거 마커를 걷어낸 뒤 비어 있거나 미입력이면 null이다', () => {
+    expect(normalizeTaskMetadata('[seg_12]')).toBeNull()
+    expect(normalizeTaskMetadata('미입력[seg_12]')).toBeNull()
+  })
+
+  it('근거 마커가 아닌 대괄호 표기는 보존한다', () => {
+    expect(normalizeTaskMetadata('[외주] 이한결')).toBe('[외주] 이한결')
+  })
+})
 
 /**
  * Action Item 하나.

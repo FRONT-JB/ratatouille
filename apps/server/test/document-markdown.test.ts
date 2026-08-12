@@ -109,6 +109,22 @@ describe('본문', () => {
     expect(body).toContain('3월 2일')
   })
 
+  it('예전 데이터의 담당자·기한에 섞인 본문용 근거 마커를 출력하지 않는다', () => {
+    const { body } = render({
+      tasks: [
+        {
+          action: '확인한다[seg_0].',
+          owner: '이한결[seg_53]',
+          due: '내일[seg_61]',
+          evidence: ['seg_0'],
+        },
+      ],
+    })
+    expect(body).toContain('담당 이한결 · 기한 내일')
+    expect(body).not.toContain('이한결[seg_53]')
+    expect(body).not.toContain('내일[seg_61]')
+  })
+
   it('⛔ 없는 담당자를 지어내지 않는다', () => {
     const { body } = render({
       tasks: [{ action: '확인한다[seg_0].', owner: null, due: null, evidence: ['seg_0'] }],

@@ -123,6 +123,13 @@ describe('고친다', () => {
     expect(dated.tasks[0]?.due).toBe('3월 2일')
   })
 
+  it('담당자와 기한에 붙여 넣은 본문용 근거 마커는 저장하지 않는다', () => {
+    const owned = apply({ section: 'tasks', kind: 'owner', index: 0, value: '이한결[seg_1]' })
+    expect(owned.tasks[0]?.owner).toBe('이한결')
+    const dated = apply({ section: 'tasks', kind: 'due', index: 0, value: '내일[seg_1]' })
+    expect(dated.tasks[0]?.due).toBe('내일')
+  })
+
   it('담당자를 다시 비울 수 있다 — 잘못 지정했을 수도 있다', () => {
     const next = applyEdit(
       apply({ section: 'tasks', kind: 'owner', index: 0, value: '이한결' }),

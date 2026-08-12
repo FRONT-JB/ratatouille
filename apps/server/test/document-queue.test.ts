@@ -332,6 +332,17 @@ describe('⛔ Action Item의 담당자와 기한', () => {
     })
   })
 
+  it('모델이 담당자와 기한에 붙인 본문용 근거 마커는 저장하지 않는다', async () => {
+    modelOutput = withTasks('이한결[seg_1]', '내일[seg_1]')
+    await withRevision()
+    const run = await queue.enqueue('src_01')
+
+    expect(run.proposal!.tasks[0]).toMatchObject({
+      owner: '이한결',
+      due: '내일',
+    })
+  })
+
   it('⛔ `미입력`은 문자열이 아니라 null이다 — 그런 이름의 사람이 없다', async () => {
     modelOutput = withTasks('미입력', '미입력')
     await withRevision()

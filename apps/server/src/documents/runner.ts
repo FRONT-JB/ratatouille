@@ -14,10 +14,10 @@ import {
   type DocumentProposal,
   type EvidenceViolation,
   type TranscriptSegment,
-  UNSET_LABEL,
   canPromoteToProposed,
   citedIdsIn,
   describeViolation,
+  normalizeTaskMetadata,
   verifyEvidence,
 } from '@ratatouille/contracts'
 import { buildDocumentPrompt, extractJson } from './prompt.ts'
@@ -255,8 +255,8 @@ function normalize(parsed: unknown): DocumentProposal {
       const action = String(r.action ?? '')
       return {
         action,
-        owner: optional(r.owner),
-        due: optional(r.due),
+        owner: normalizeTaskMetadata(r.owner),
+        due: normalizeTaskMetadata(r.due),
         evidence: cites(action, r.evidence),
       }
     }),
@@ -354,20 +354,6 @@ export function fillEvidence(
       }
     }),
   }
-}
-
-/**
- * 담당자·기한처럼 **없을 수 있는** 값.
- *
- * ⛔ 프롬프트가 "없으면 `미입력`"이라고 시켰으므로 모델은 그 단어를 그대로
- *    보낸다. 그것을 문자열로 저장하면 그런 이름의 담당자와 구분되지 않는다.
- *    없음은 `null`이다.
- */
-function optional(v: unknown): string | null {
-  if (typeof v !== 'string') return null
-  const s = v.trim()
-  if (s === '' || s === UNSET_LABEL || s === '없음' || s === '미정') return null
-  return s
 }
 
 /**

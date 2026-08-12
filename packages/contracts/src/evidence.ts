@@ -12,7 +12,7 @@
  *    프롬프트 보강은 위반 빈도를 줄일 뿐 0으로 만들지 못한다.
  */
 
-import { citedIdsIn } from './citation.ts'
+import { citedIdsIn, stripCitations } from './citation.ts'
 
 export type TranscriptSegment = {
   id: string
@@ -47,6 +47,20 @@ export type ProposedTask = {
 
 /** 비어 있음을 사람에게 보여주는 말. 프롬프트와 화면이 같은 단어를 쓴다 */
 export const UNSET_LABEL = '미입력'
+
+/**
+ * Action Item의 담당자·기한처럼 짧은 메타데이터를 저장 가능한 값으로 만든다.
+ *
+ * 근거 마커는 `action` 같은 본문 안에서만 의미가 있다. 모델이나 붙여넣기가
+ * `[seg_33]`을 이 칸에 섞어도 출처가 되지 않고 입력 폭만 깨뜨리므로 경계에서
+ * 제거한다. 마커를 제거한 뒤의 없음 표시는 정식 데이터인 `null`로 맞춘다.
+ */
+export function normalizeTaskMetadata(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = stripCitations(value).trim()
+  if (text === '' || text === UNSET_LABEL || text === '없음' || text === '미정') return null
+  return text
+}
 
 /**
  * 회의 전문 — 주제별로 나눈 **긴 정리글**.

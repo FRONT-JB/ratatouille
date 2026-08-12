@@ -235,6 +235,25 @@ describe('Action Item', () => {
     expect(input(screen, 'Action Item 1 기한').value).toBe('3월 2일')
   })
 
+  it('예전 데이터에 섞인 본문용 근거 마커를 입력칸에서 숨긴다', async () => {
+    const dirty = {
+      ...PROPOSED,
+      proposal: {
+        ...PROPOSAL,
+        tasks: [
+          {
+            ...PROPOSAL.tasks[0]!,
+            owner: '이한결[seg_53]',
+            due: '내일[seg_61]',
+          },
+        ],
+      },
+    }
+    const { screen } = await setup(dirty)
+    expect(input(screen, 'Action Item 1 담당자').value).toBe('이한결')
+    expect(input(screen, 'Action Item 1 기한').value).toBe('내일')
+  })
+
   it('⛔ 없는 담당자를 지어내지 않는다 — 빈 칸으로 남는다', async () => {
     // 화자 분리를 접었으므로 "제가 하겠습니다"는 누가 말했는지 알 수 없다.
     const el = input(await setup(PROPOSED).then((r) => r.screen), 'Action Item 2 담당자')
@@ -247,6 +266,20 @@ describe('Action Item', () => {
     const el = screen.getByRole('textbox', { name: 'Action Item 2 담당자' })
     await el.fill('지영')
     // ⛔ 타이핑 도중이 아니라 칸을 떠날 때 보낸다 — 이름은 짧아서 중간값이 저장된다
+    await screen.getByRole('textbox', { name: 'Action Item 1 담당자' }).click()
+
+    expect(onEdit).toHaveBeenCalledWith({
+      section: 'tasks',
+      kind: 'owner',
+      index: 1,
+      value: '지영',
+    })
+  })
+
+  it('담당자에 붙여 넣은 본문용 근거 마커는 제거해서 저장한다', async () => {
+    const { screen, onEdit } = await setup(PROPOSED)
+    const el = screen.getByRole('textbox', { name: 'Action Item 2 담당자' })
+    await el.fill('지영[seg_1]')
     await screen.getByRole('textbox', { name: 'Action Item 1 담당자' }).click()
 
     expect(onEdit).toHaveBeenCalledWith({

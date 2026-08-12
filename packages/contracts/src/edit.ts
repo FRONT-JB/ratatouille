@@ -14,7 +14,7 @@
  */
 
 import { citedIdsIn } from './citation.ts'
-import type { DocumentProposal } from './evidence.ts'
+import { type DocumentProposal, normalizeTaskMetadata } from './evidence.ts'
 import type { ReviewSection } from './review.ts'
 import { RuleViolationError } from './rules.ts'
 
@@ -144,7 +144,7 @@ export function applyEdit(
        * ⛔ 빈 값은 `null`이다. `'미입력'`으로 저장하면 그런 이름의 담당자와
        *    구분되지 않고, "담당자가 정해졌는가"를 코드가 물을 수 없게 된다.
        */
-      const value = edit.value?.trim() ? edit.value.trim() : null
+      const value = normalizeTaskMetadata(edit.value)
       return {
         ...proposal,
         tasks: replaced(proposal.tasks, edit.index, { ...cur, [edit.kind]: value }),

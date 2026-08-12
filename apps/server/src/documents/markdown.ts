@@ -12,6 +12,7 @@ import {
   type DocumentProposal,
   UNSET_LABEL,
   footnoteNumbers,
+  normalizeTaskMetadata,
   toMarkdownFootnotes,
 } from '@ratatouille/contracts'
 import type { Frontmatter } from '../vault/document.ts'
@@ -117,9 +118,11 @@ function renderBody(
        * ⛔ 담당자·기한이 비어 있는 것을 감추지 않는다. 화자 분리를 접었으므로
        *    "제가 하겠습니다"는 누구인지 알 수 없다 — 사람이 채울 자리다.
        */
+      const owner = normalizeTaskMetadata(t.owner)
+      const due = normalizeTaskMetadata(t.due)
       out.push(
         `- [ ] ${footnoted(t.action, numbers)}`,
-        `      담당 ${t.owner ?? UNSET_LABEL} · 기한 ${t.due ?? UNSET_LABEL}`
+        `      담당 ${owner ?? UNSET_LABEL} · 기한 ${due ?? UNSET_LABEL}`
       )
     }
     out.push('')

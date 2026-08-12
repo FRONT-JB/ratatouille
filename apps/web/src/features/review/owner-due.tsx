@@ -3,6 +3,7 @@ import {
   type ProposalEdit,
   type ProposedTask,
   UNSET_LABEL,
+  normalizeTaskMetadata,
 } from '@ratatouille/contracts'
 import { Input } from '@/components/ui/input'
 
@@ -28,9 +29,11 @@ export function OwnerAndDue({
   onEdit: (edit: ProposalEdit) => void
 }) {
   if (disabled) {
+    const owner = normalizeTaskMetadata(task.owner)
+    const due = normalizeTaskMetadata(task.due)
     return (
       <p className='text-muted-foreground mt-1 text-sm'>
-        담당 {task.owner ?? UNSET_LABEL} · 기한 {task.due ?? UNSET_LABEL}
+        담당 {owner ?? UNSET_LABEL} · 기한 {due ?? UNSET_LABEL}
       </p>
     )
   }
@@ -76,10 +79,11 @@ function Field({
    *    도중에 서버 응답이 오면 쓰던 글자가 되돌아간다. 값이 밖에서 바뀌면
    *    부모가 `key`로 이 칸을 다시 만든다.
    */
-  const [draft, setDraft] = useState(value ?? '')
+  const normalized = normalizeTaskMetadata(value)
+  const [draft, setDraft] = useState(normalized ?? '')
 
   const commit = () => {
-    const next = draft.trim() === '' ? null : draft.trim()
+    const next = normalizeTaskMetadata(draft)
     if (next !== value) onSave(next)
   }
 
@@ -91,7 +95,7 @@ function Field({
       onKeyDown={(e) => {
         if (e.key === 'Enter') e.currentTarget.blur()
         if (e.key === 'Escape') {
-          setDraft(value ?? '')
+          setDraft(normalized ?? '')
           e.currentTarget.blur()
         }
       }}
