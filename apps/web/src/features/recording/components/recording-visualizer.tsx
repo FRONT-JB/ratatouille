@@ -1,3 +1,4 @@
+import { AudioLines, Mic2, MonitorSpeaker } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAudioLevels } from '../use-audio-level'
 
@@ -30,10 +31,14 @@ export function RecordingVisualizer({
   className,
 }: VisualizerProps) {
   const { level, history, reading, stalled } = useAudioLevels(stream, active)
+  const InputIcon = label === '탭 오디오' ? MonitorSpeaker : Mic2
 
   return (
     <div
-      className={cn('flex flex-col gap-2', className)}
+      className={cn(
+        'flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card',
+        className
+      )}
       data-testid='recording-visualizer'
       data-active={active}
       // 테스트와 접근성 양쪽에서 현재 레벨을 확인할 수 있게 노출한다
@@ -46,29 +51,64 @@ export function RecordingVisualizer({
           : `${label} 입력 레벨 ${Math.round(level * 100)}%`
       }
     >
-      <div className='flex h-24 items-end gap-[3px]' aria-hidden>
-        {history.map((h, i) => (
+      <div className='flex items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5'>
+        <div className='flex min-w-0 items-center gap-2.5'>
+          <InputIcon
+            className='size-4 shrink-0 text-muted-foreground'
+            aria-hidden
+          />
+          <p className='truncate text-sm font-medium'>{label}</p>
+        </div>
+        <span
+          className={cn(
+            'flex shrink-0 items-center gap-1.5 text-xs',
+            stalled
+              ? 'text-state-warning'
+              : active
+                ? 'text-state-success'
+                : 'text-muted-foreground'
+          )}
+        >
+          <AudioLines className='size-3.5' aria-hidden />
+          {stalled ? '읽기 오류' : active ? '실시간 입력' : '일시정지'}
+        </span>
+      </div>
+
+      <div
+        className='relative flex h-36 items-center gap-[3px] px-4 py-5 sm:h-44 sm:px-5'
+        aria-hidden
+      >
+        <div className='absolute inset-x-4 top-1/2 h-px bg-border sm:inset-x-5' />
+        {history.map((height, index) => (
           <div
-            key={i}
+            key={index}
             className={cn(
-              'flex-1 rounded-sm transition-[height] duration-75',
+              'relative min-w-px flex-1 rounded-full transition-[height] duration-75 motion-reduce:transition-none',
               stalled
-                ? 'bg-state-warning/30'
+                ? 'bg-state-warning/40'
                 : active
-                  ? 'bg-primary'
+                  ? 'bg-foreground'
                   : 'bg-muted-foreground/25'
             )}
-            style={{ height: `${Math.max(2, h * 100)}%` }}
+            style={{ height: `${Math.max(3, height * 100)}%` }}
           />
         ))}
       </div>
-      {stalled ? (
-        <p className='text-state-warning text-xs' role='alert'>
-          {label}: {STALLED_TEXT}. 녹음은 계속되고 있습니다.
-        </p>
-      ) : (
-        <p className='text-muted-foreground text-xs'>{label}</p>
-      )}
+
+      <div className='flex min-h-10 items-center justify-between gap-3 border-t border-border px-4 py-2 sm:px-5'>
+        {stalled ? (
+          <p className='text-xs text-state-warning' role='alert'>
+            {STALLED_TEXT}. 녹음은 계속되고 있습니다.
+          </p>
+        ) : (
+          <p className='text-xs text-muted-foreground'>
+            오른쪽 끝이 현재 입력입니다.
+          </p>
+        )}
+        <span className='shrink-0 font-mono text-xs text-muted-foreground tabular-nums'>
+          {Math.round(level * 100)}%
+        </span>
+      </div>
     </div>
   )
 }
@@ -107,11 +147,13 @@ export function LevelMeter({
           ) : (
             <span />
           )}
-          {hint && <span className='text-muted-foreground text-xs'>{hint}</span>}
+          {hint && (
+            <span className='text-xs text-muted-foreground'>{hint}</span>
+          )}
         </div>
       )}
       <div
-        className='bg-muted h-2 w-full overflow-hidden rounded-full'
+        className='h-2.5 w-full overflow-hidden rounded-full bg-muted'
         role='meter'
         aria-valuenow={Math.round(level * 100)}
         aria-valuemin={0}
@@ -119,7 +161,7 @@ export function LevelMeter({
         aria-label={`${label} 입력 레벨`}
       >
         <div
-          className='bg-state-success h-full rounded-full transition-[width] duration-75'
+          className='h-full rounded-full bg-state-success transition-[width] duration-75 motion-reduce:transition-none'
           style={{ width: `${level * 100}%` }}
         />
       </div>
@@ -128,7 +170,7 @@ export function LevelMeter({
            끝난 뒤에야 무음인지 확인하게 된다.
       */}
       {stalled && (
-        <p className='text-state-warning text-xs' role='alert'>
+        <p className='text-xs text-state-warning' role='alert'>
           {STALLED_TEXT}. 브라우저 탭을 한 번 클릭한 뒤 다시 확인해 주세요.
         </p>
       )}

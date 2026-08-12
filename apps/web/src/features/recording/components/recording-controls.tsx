@@ -23,25 +23,41 @@ export function RecordingControls({
   onResume,
   onStop,
 }: Props) {
+  const visible = Object.values(controls).some(Boolean)
+  if (!visible) return null
+
   return (
-    <div className='flex flex-wrap items-center gap-2'>
+    <div
+      className='flex flex-wrap items-center justify-end gap-2 rounded-xl border border-border bg-background/95 p-3 shadow-[0_8px_24px_rgba(0,0,0,0.06)] sm:p-4'
+      aria-label='녹음 조작'
+    >
       {controls.canStart && (
-        <Button onClick={onStart} size='lg'>
+        <Button onClick={onStart} size='lg' className='w-full sm:w-auto'>
           <Mic /> 녹음 시작
         </Button>
       )}
       {controls.canPause && (
-        <Button onClick={onPause} variant='outline' size='lg'>
+        <Button
+          onClick={onPause}
+          variant='outline'
+          size='lg'
+          className='flex-1 sm:flex-none'
+        >
           <Pause /> 일시정지
         </Button>
       )}
       {controls.canResume && (
-        <Button onClick={onResume} size='lg'>
+        <Button onClick={onResume} size='lg' className='flex-1 sm:flex-none'>
           <Play /> 재개
         </Button>
       )}
       {controls.canStop && (
-        <Button onClick={onStop} variant='destructive' size='lg'>
+        <Button
+          onClick={onStop}
+          variant='destructive'
+          size='lg'
+          className='flex-1 sm:flex-none'
+        >
           <Square /> 녹음 종료
         </Button>
       )}

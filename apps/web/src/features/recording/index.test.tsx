@@ -25,7 +25,9 @@ async function toneStream(gain = 0.4): Promise<MediaStream> {
 }
 
 /** 마이크 권한이 승인되고 장치가 하나 있는 상태 */
-async function grantedDeps(over: Partial<RecordingDeps> = {}): Promise<RecordingDeps> {
+async function grantedDeps(
+  over: Partial<RecordingDeps> = {}
+): Promise<RecordingDeps> {
   const stream = await toneStream()
   return {
     getUserMedia: async () => stream,
@@ -49,7 +51,9 @@ describe('⛔ 자동으로 녹음이 시작되지 않는다', () => {
   it('권한을 받아도 저절로 시작하지 않는다', async () => {
     const screen = await render(<RecordingPage deps={await grantedDeps()} />)
 
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
     await expect
       .element(screen.getByRole('button', { name: /녹음 시작/ }))
       .toBeInTheDocument()
@@ -64,7 +68,9 @@ describe('⛔ 온라인 모드는 탭 track 없이 시작되지 않는다', () =
 
   it('경고가 표시된다', async () => {
     const screen = await render(<RecordingPage deps={await grantedDeps()} />)
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
     await userEvent.click(screen.getByRole('radio', { name: /온라인 회의/ }))
 
     await expect
@@ -74,11 +80,15 @@ describe('⛔ 온라인 모드는 탭 track 없이 시작되지 않는다', () =
 
   it('시작 버튼이 사라진다 — 누를 수 있는 상태로 두지 않는다', async () => {
     const screen = await render(<RecordingPage deps={await grantedDeps()} />)
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
     await userEvent.click(screen.getByRole('radio', { name: /온라인 회의/ }))
 
     expect(
-      screen.container.querySelector('[data-testid=blocker-online_requires_remote]')
+      screen.container.querySelector(
+        '[data-testid=blocker-online_requires_remote]'
+      )
     ).not.toBeNull()
     await expect
       .element(screen.getByRole('button', { name: /녹음 시작/ }))
@@ -87,11 +97,24 @@ describe('⛔ 온라인 모드는 탭 track 없이 시작되지 않는다', () =
 
   it('대면 모드는 탭 없이 시작할 수 있다', async () => {
     const screen = await render(<RecordingPage deps={await grantedDeps()} />)
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
 
     await expect
       .element(screen.getByRole('button', { name: /녹음 시작/ }))
       .toBeInTheDocument()
+  })
+
+  it('회의 방식은 방향키로 바꿀 수 있다', async () => {
+    const screen = await render(<RecordingPage />)
+    const inPerson = screen.getByRole('radio', { name: /대면 회의/ })
+    const online = screen.getByRole('radio', { name: /온라인 회의/ })
+
+    inPerson.element().focus()
+    await userEvent.keyboard('{ArrowRight}')
+
+    expect((online.element() as HTMLInputElement).checked).toBe(true)
   })
 
   it('탭을 공유했지만 오디오가 없으면 그 사실을 알린다', async () => {
@@ -103,9 +126,13 @@ describe('⛔ 온라인 모드는 탭 track 없이 시작되지 않는다', () =
         deps={await grantedDeps({ getDisplayMedia: async () => videoOnly })}
       />
     )
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
     await userEvent.click(screen.getByRole('radio', { name: /온라인 회의/ }))
-    await userEvent.click(screen.getByRole('button', { name: '탭 오디오 공유' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '탭 오디오 공유' })
+    )
 
     await expect
       .element(screen.getByText(/탭 오디오도 공유/))
@@ -116,7 +143,9 @@ describe('⛔ 온라인 모드는 탭 track 없이 시작되지 않는다', () =
 describe('사전 level meter가 각각 표시된다', () => {
   it('마이크 meter가 있다', async () => {
     const screen = await render(<RecordingPage deps={await grantedDeps()} />)
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
 
     await expect
       .element(screen.getByRole('meter', { name: '마이크 입력 레벨' }))
@@ -126,7 +155,9 @@ describe('사전 level meter가 각각 표시된다', () => {
   it('⛔ 온라인 모드에서는 탭 meter가 따로 있다', async () => {
     // 하나로 합치면 어느 쪽이 죽었는지 알 수 없다.
     const screen = await render(<RecordingPage deps={await grantedDeps()} />)
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
     await userEvent.click(screen.getByRole('radio', { name: /온라인 회의/ }))
 
     await expect
@@ -149,7 +180,9 @@ describe('권한 거부', () => {
         }}
       />
     )
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
 
     await expect
       .element(screen.getByText(/마이크 권한이 거부되었습니다/))
@@ -173,14 +206,18 @@ describe('⛔ 녹음 중 페이지에 없어야 하는 것', () => {
 
   it.each(FORBIDDEN)('"%s" 관련 UI가 없다', async (word) => {
     const screen = await render(<RecordingPage deps={await grantedDeps()} />)
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
 
     expect(screen.container.textContent).not.toContain(word)
   })
 
   it('입력 필드나 편집 영역이 없다 — 검수 UI의 흔적', async () => {
     const screen = await render(<RecordingPage deps={await grantedDeps()} />)
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
 
     expect(screen.container.querySelector('textarea')).toBeNull()
     expect(screen.container.querySelector('input[type=text]')).toBeNull()
@@ -219,7 +256,9 @@ describe('⛔ 녹음 종료 후 "저장 중"에 갇히지 않는다', () => {
         }}
       />
     )
-    await userEvent.click(screen.getByRole('button', { name: '마이크 권한 요청' }))
+    await userEvent.click(
+      screen.getByRole('button', { name: '마이크 권한 요청' })
+    )
     await userEvent.click(screen.getByRole('button', { name: /녹음 시작/ }))
     await new Promise((r) => setTimeout(r, 300))
     await userEvent.click(screen.getByRole('button', { name: /녹음 종료/ }))
@@ -257,8 +296,12 @@ describe('⛔ 녹음 종료 후 "저장 중"에 갇히지 않는다', () => {
       ) {
         await new Promise((r) => setTimeout(r, 50))
       }
-      await expect.element(screen.getByTestId('recording-finished')).toBeInTheDocument()
-      await expect.element(screen.getByRole('link', { name: '회의 열기' })).toBeInTheDocument()
+      await expect
+        .element(screen.getByTestId('recording-finished'))
+        .toBeInTheDocument()
+      await expect
+        .element(screen.getByRole('link', { name: '회의 열기' }))
+        .toBeInTheDocument()
     } finally {
       globalThis.fetch = original
     }

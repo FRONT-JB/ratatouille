@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { resetAnalyserPool, resumeAudio, sharedAudioContext } from '../analyser-pool'
+import {
+  resetAnalyserPool,
+  resumeAudio,
+  sharedAudioContext,
+} from '../analyser-pool'
 import { RecordingVisualizer } from './recording-visualizer'
 
 let ctx: AudioContext | null = null
@@ -44,7 +48,9 @@ describe('⛔ visualizer는 실제 오디오 입력에 반응한다', () => {
     )
     await settle()
 
-    const el = screen.container.querySelector('[data-testid=recording-visualizer]')!
+    const el = screen.container.querySelector(
+      '[data-testid=recording-visualizer]'
+    )!
     expect(levelOf(el)).toBeGreaterThan(0.3)
   })
 
@@ -55,7 +61,9 @@ describe('⛔ visualizer는 실제 오디오 입력에 반응한다', () => {
     )
     await settle()
 
-    const el = screen.container.querySelector('[data-testid=recording-visualizer]')!
+    const el = screen.container.querySelector(
+      '[data-testid=recording-visualizer]'
+    )!
     expect(levelOf(el)).toBe(0)
   })
 
@@ -65,7 +73,9 @@ describe('⛔ visualizer는 실제 오디오 입력에 반응한다', () => {
     )
     await settle(150)
 
-    const el = screen.container.querySelector('[data-testid=recording-visualizer]')!
+    const el = screen.container.querySelector(
+      '[data-testid=recording-visualizer]'
+    )!
     expect(levelOf(el)).toBe(0)
   })
 
@@ -76,7 +86,9 @@ describe('⛔ visualizer는 실제 오디오 입력에 반응한다', () => {
     )
     await settle()
 
-    const el = screen.container.querySelector('[data-testid=recording-visualizer]')!
+    const el = screen.container.querySelector(
+      '[data-testid=recording-visualizer]'
+    )!
     expect(levelOf(el)).toBe(0)
   })
 })
@@ -97,7 +109,11 @@ describe('⛔ 같은 stream을 두 곳에서 봐도 둘 다 움직인다', () =>
     )
     await settle()
 
-    const els = [...screen.container.querySelectorAll('[data-testid=recording-visualizer]')]
+    const els = [
+      ...screen.container.querySelectorAll(
+        '[data-testid=recording-visualizer]'
+      ),
+    ]
     expect(els.length).toBe(2)
     for (const el of els) expect(levelOf(el)).toBeGreaterThan(0.3)
   })
@@ -116,7 +132,9 @@ describe('⛔ 같은 stream을 두 곳에서 봐도 둘 다 움직인다', () =>
     )
     await settle()
 
-    const el = screen.container.querySelector('[data-testid=recording-visualizer]')!
+    const el = screen.container.querySelector(
+      '[data-testid=recording-visualizer]'
+    )!
     expect(levelOf(el)).toBeGreaterThan(0.3)
   })
 })
@@ -137,15 +155,21 @@ describe('⛔ 못 읽는 상태는 무음과 구분된다', () => {
     )
     await settle(1200)
 
-    const el = screen.container.querySelector('[data-testid=recording-visualizer]')!
+    const el = screen.container.querySelector(
+      '[data-testid=recording-visualizer]'
+    )!
     expect(el.getAttribute('data-reading')).toBe('false')
-    expect(screen.container.textContent).toContain('입력 레벨을 읽을 수 없습니다')
+    expect(screen.container.textContent).toContain(
+      '입력 레벨을 읽을 수 없습니다'
+    )
 
     // 깨우면 곧바로 따라온다 — 되돌릴 수 없는 상태가 아니다
     await resumeAudio()
     await settle()
     expect(levelOf(el)).toBeGreaterThan(0.3)
-    expect(screen.container.textContent).not.toContain('입력 레벨을 읽을 수 없습니다')
+    expect(screen.container.textContent).not.toContain(
+      '입력 레벨을 읽을 수 없습니다'
+    )
   })
 
   it('레벨을 읽고 있으면 data-reading이 true다', async () => {
@@ -155,7 +179,9 @@ describe('⛔ 못 읽는 상태는 무음과 구분된다', () => {
     )
     await settle()
 
-    const el = screen.container.querySelector('[data-testid=recording-visualizer]')!
+    const el = screen.container.querySelector(
+      '[data-testid=recording-visualizer]'
+    )!
     // 무음이지만 **읽고는 있다**. 이 둘이 같은 화면이면 안 된다.
     expect(levelOf(el)).toBe(0)
     expect(el.getAttribute('data-reading')).toBe('true')
@@ -173,5 +199,21 @@ describe('접근성', () => {
     await expect
       .element(screen.getByRole('img', { name: /마이크 입력 레벨/ }))
       .toBeInTheDocument()
+  })
+
+  it('reduced-motion에서는 높이 보간만 제거하고 실제 파형은 유지한다', async () => {
+    const stream = await toneStream(0.5)
+    const screen = await render(
+      <RecordingVisualizer stream={stream} active label='마이크' />
+    )
+    await settle()
+
+    const visualizer = screen.getByTestId('recording-visualizer').element()
+    const bars = visualizer.querySelectorAll('[style*="height"]')
+    expect(bars.length).toBeGreaterThan(0)
+    expect(bars[0]?.classList.contains('motion-reduce:transition-none')).toBe(
+      true
+    )
+    expect(levelOf(visualizer)).toBeGreaterThan(0.3)
   })
 })
