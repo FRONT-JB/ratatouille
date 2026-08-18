@@ -32,7 +32,7 @@
 ### 저장
 
 ```
-~/Desktop/jb/ratatouille/.experiments/meeting-sample.mp3
+.experiments/meeting-sample.mp3
 ```
 
 온라인으로 녹음해 트랙이 2개면 `meeting-mic.mp3`, `meeting-remote.mp3`로 나눠 저장하세요.

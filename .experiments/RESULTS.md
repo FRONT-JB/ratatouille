@@ -26,7 +26,7 @@ evidence 환각 0건. 단 **결함 A(evidence 배열 누락)가 78%로 악화**�
 | whisper.cpp | ❌ 없었음 → `brew install whisper-cpp`로 설치 (`whisper-cli`) |
 | ggml 모델 | ❌ 머신에 하나도 없었음 → `ggml-large-v3-turbo.bin` 1.6GB 다운로드 |
 | Node / pnpm / bun | ✅ v24.14.0 / 10.32.1 / 1.3.11 |
-| 기존 Ratatouille 런타임 | **없음** (`~/Desktop/jb/ratatouille`는 빈 폴더였음) |
+| 기존 Ratatouille 런타임 | **없음** (저장소 루트는 빈 폴더였음) |
 
 ---
 
